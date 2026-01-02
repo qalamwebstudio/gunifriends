@@ -21,15 +21,8 @@ class MongoDatabase {
     }
 
     try {
-      // MongoDB connection options for production
-      const options = {
-        retryWrites: true,
-        w: 'majority' as const,
-        serverSelectionTimeoutMS: 5000,
-        connectTimeoutMS: 10000,
-      };
-
-      this.client = new MongoClient(uri, options);
+      // Use minimal options for MongoDB connection
+      this.client = new MongoClient(uri);
       await this.client.connect();
       this.db = this.client.db(dbName);
       

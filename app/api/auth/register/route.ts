@@ -7,9 +7,15 @@ import { ApiResponse } from '../../../types';
 
 export async function POST(request: NextRequest) {
   try {
-    console.log("😁😁")
+    console.log('🔍 Registration attempt started');
+    console.log('🔍 Environment:', process.env.NODE_ENV);
+    console.log('🔍 MongoDB URI exists:', !!process.env.MONGODB_URI);
+    console.log('🔍 Database name:', process.env.DATABASE_NAME);
+    
     const body = await request.json();
     const { email, password, university } = body;
+    
+    console.log('🔍 Registration data:', { email, university });
 
     // Validate required fields
     const { isValid: hasRequiredFields, missingFields } = ValidationUtils.validateRequiredFields(
