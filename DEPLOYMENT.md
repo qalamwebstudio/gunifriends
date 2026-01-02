@@ -27,6 +27,20 @@ DATABASE_NAME = university_video_chat
 3. Add environment variables in Vercel dashboard
 4. Deploy
 
+### Debugging Registration Issues:
+
+If you're getting "Internal server error during registration", you can:
+
+1. **Test the debug endpoint**: Visit `https://gunifriends.vercel.app/api/debug/register` with POST request
+2. **Check Vercel logs**: Go to Vercel Dashboard → Your Project → Functions → View Logs
+3. **Run local debug**: Use `node debug-registration.js` to test both local and production
+
+### Common Issues:
+
+1. **Environment Variables Missing**: Make sure all required env vars are set in Vercel
+2. **Database Connection**: Verify MongoDB URI is correct and accessible from Vercel
+3. **CORS Issues**: Check if FRONTEND_URL matches your domain exactly
+
 ### Important Notes:
 
 - Socket.io connections now use dynamic URLs based on environment

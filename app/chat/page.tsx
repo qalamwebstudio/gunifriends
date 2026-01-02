@@ -132,7 +132,23 @@ function ChatPageContent() {
     const token = localStorage.getItem('authToken');
     if (!token) return;
 
-    const newSocket = io(process.env.NEXT_PUBLIC_BASE_URL || window.location.origin, {
+    // Determine the correct socket URL based on environment
+    const getSocketUrl = () => {
+      // If we're in development mode, use localhost
+      if (process.env.NODE_ENV === 'development') {
+        return 'http://localhost:3000';
+      }
+      
+      // If we're in production, use the production URL
+      if (process.env.NEXT_PUBLIC_BASE_URL) {
+        return process.env.NEXT_PUBLIC_BASE_URL;
+      }
+      
+      // Fallback to current origin
+      return window.location.origin;
+    };
+
+    const newSocket = io(getSocketUrl(), {
       auth: {
         token
       },
