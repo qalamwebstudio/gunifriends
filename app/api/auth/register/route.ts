@@ -7,6 +7,7 @@ import { ApiResponse } from '../../../types';
 
 export async function POST(request: NextRequest) {
   try {
+    console.log("😁😁")
     const body = await request.json();
     const { email, password, university } = body;
 
@@ -96,7 +97,7 @@ export async function POST(request: NextRequest) {
     console.error('Registration error:', error);
     return NextResponse.json<ApiResponse>({
       success: false,
-      error: 'Internal server error during registration'
+      error: error instanceof Error ? error.message : 'Internal server error during registration'
     }, { status: 500 });
   }
 }
