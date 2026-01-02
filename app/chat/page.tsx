@@ -132,7 +132,7 @@ function ChatPageContent() {
     const token = localStorage.getItem('authToken');
     if (!token) return;
 
-    const newSocket = io('http://localhost:3000', {
+    const newSocket = io(process.env.NEXT_PUBLIC_BASE_URL || window.location.origin, {
       auth: {
         token
       },
