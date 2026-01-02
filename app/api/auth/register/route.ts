@@ -95,9 +95,26 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('Registration error:', error);
+    
+    // Provide more specific error messages
+    let errorMessage = 'Internal server error during registration';
+    
+    if (error instanceof Error) {
+      // Check for specific MongoDB connection errors
+      if (error.message.includes('SSL') || error.message.includes('TLS')) {
+        errorMessage = 'Database connection error. Please try again later.';
+      } else if (error.message.includes('MONGODB_URI')) {
+        errorMessage = 'Database configuration error.';
+      } else if (error.message.includes('timeout')) {
+        errorMessage = 'Database connection timeout. Please try again.';
+      } else {
+        errorMessage = error.message;
+      }
+    }
+    
     return NextResponse.json<ApiResponse>({
       success: false,
-      error: error instanceof Error ? error.message : 'Internal server error during registration'
+      error: errorMessage
     }, { status: 500 });
   }
 }

@@ -21,7 +21,19 @@ class MongoDatabase {
     }
 
     try {
-      this.client = new MongoClient(uri);
+      // MongoDB connection options for production
+      const options = {
+        ssl: true,
+        sslValidate: true,
+        retryWrites: true,
+        w: 'majority' as const,
+        serverSelectionTimeoutMS: 5000,
+        connectTimeoutMS: 10000,
+        maxPoolSize: 10,
+        minPoolSize: 5,
+      };
+
+      this.client = new MongoClient(uri, options);
       await this.client.connect();
       this.db = this.client.db(dbName);
       
