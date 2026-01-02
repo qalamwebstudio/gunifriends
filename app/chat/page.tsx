@@ -134,17 +134,17 @@ function ChatPageContent() {
 
     // Determine the correct socket URL based on environment
     const getSocketUrl = () => {
-      // If we're in development mode, use localhost
-      if (process.env.NODE_ENV === 'development') {
-        return 'http://localhost:3000';
+      // If we have a dedicated socket server URL, use it
+      if (process.env.NEXT_PUBLIC_SOCKET_URL) {
+        return process.env.NEXT_PUBLIC_SOCKET_URL;
       }
       
-      // If we're in production, use the production URL
-      if (process.env.NEXT_PUBLIC_BASE_URL) {
-        return process.env.NEXT_PUBLIC_BASE_URL;
+      // If we're running on localhost (development), use localhost
+      if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        return 'http://localhost:3001'; // Socket server runs on port 3001
       }
       
-      // Fallback to current origin
+      // Fallback (shouldn't reach here in production)
       return window.location.origin;
     };
 
@@ -173,7 +173,13 @@ function ChatPageContent() {
 
     newSocket.on('connect_error', (error) => {
       console.error('Connection error:', error);
-      setError('Failed to connect to server. Please try again.');
+      
+      // Provide more helpful error messages
+      if (!process.env.NEXT_PUBLIC_SOCKET_URL && window.location.hostname !== 'localhost') {
+        setError('Socket server URL not configured. Please set NEXT_PUBLIC_SOCKET_URL environment variable.');
+      } else {
+        setError('Failed to connect to socket server. Please try again.');
+      }
     });
 
     newSocket.on('match-found', (matchData) => {
