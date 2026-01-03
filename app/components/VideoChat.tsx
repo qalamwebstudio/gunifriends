@@ -53,20 +53,13 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
 
   // Initialize media stream and WebRTC connection
   useEffect(() => {
-    if (isSessionRestored) {
-      console.log('Initializing restored video chat session');
-      onError('Reconnecting to your previous video chat...');
-      setTimeout(() => {
-        initializeVideoChat();
-      }, 1000);
-    } else {
-      initializeVideoChat();
-    }
+    // Always initialize normally - don't delay for session restoration
+    initializeVideoChat();
     
     return () => {
       cleanup();
     };
-  }, [isSessionRestored]);
+  }, []);
 
   // Socket event listeners
   useEffect(() => {
@@ -337,8 +330,20 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         console.log('🚀 This client will initiate the connection');
         // Add delay to ensure both sides are ready and socket events are set up
         setTimeout(() => {
-          console.log('Creating offer after delay...');
-          createOffer();
+          // Double-check peer connection is still available before creating offer
+          if (peerConnectionRef.current && peerConnectionRef.current.signalingState === 'stable') {
+            console.log('Creating offer after delay...');
+            createOffer();
+          } else {
+            console.log('⚠️ Peer connection not ready for offer creation, retrying...');
+            // Retry after a short delay
+            setTimeout(() => {
+              if (peerConnectionRef.current && peerConnectionRef.current.signalingState === 'stable') {
+                console.log('🔄 Retrying offer creation...');
+                createOffer();
+              }
+            }, 1000);
+          }
         }, 3000); // Increased delay to 3 seconds for better reliability
       } else {
         console.log('⏳ This client will wait for offer from partner');
@@ -523,6 +528,11 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     // Check if we're in the right state to create an offer
     if (peerConnectionRef.current.signalingState !== 'stable') {
       console.log(`⚠️ Cannot create offer in signaling state: ${peerConnectionRef.current.signalingState}`);
+      // Wait a bit and retry if we're in a transitional state
+      if (peerConnectionRef.current.signalingState === 'have-remote-offer') {
+        console.log('⏳ Waiting for answer to be processed before creating offer...');
+        return; // Don't create offer if we have a remote offer
+      }
       return;
     }
 
@@ -584,6 +594,35 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         return;
       }
       
+      // Check signaling state
+      if (peerConnectionRef.current.signalingState === 'have-local-offer') {
+        console.log('⚠️ Received offer while we have local offer - handling collision');
+        // Handle offer collision - the one with lower user ID should back off
+        const token = localStorage.getItem('authToken');
+        let currentUserId = '';
+        
+        if (token) {
+          try {
+            const payload = JSON.parse(atob(token.split('.')[1]));
+            currentUserId = payload.userId || '';
+          } catch (error) {
+            currentUserId = socket.id || `fallback_${Date.now()}`;
+          }
+        } else {
+          currentUserId = socket.id || `fallback_${Date.now()}`;
+        }
+        
+        // If we have lower ID, we should back off and accept the offer
+        if (currentUserId.localeCompare(partnerId) < 0) {
+          console.log('🔄 Backing off from offer collision - accepting remote offer');
+          // Reset to stable state first
+          await peerConnectionRef.current.setLocalDescription({ type: 'rollback' });
+        } else {
+          console.log('⏳ Ignoring offer collision - keeping our offer');
+          return;
+        }
+      }
+      
       await peerConnectionRef.current.setRemoteDescription(offer);
       
       console.log('📝 Creating answer...');
@@ -610,7 +649,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         }
       }, 2000);
     }
-  }, [socket, onError]);
+  }, [socket, onError, partnerId]);
 
   const handleReceiveAnswer = useCallback(async (answer: RTCSessionDescriptionInit) => {
     if (!peerConnectionRef.current) {

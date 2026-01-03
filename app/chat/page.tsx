@@ -164,10 +164,13 @@ function ChatPageContent() {
       console.log('Connected to server for video chat');
       setError(null);
       
-      // Attempt session restoration if not already restored and not attempted (Requirements 8.4, 8.5)
-      if (!isSessionRestored && !sessionRestoreAttempted) {
+      // Only attempt session restoration if we don't already have match data from URL
+      if (!partnerId && !roomId && !sessionRestoreAttempted) {
         setSessionRestoreAttempted(true);
+        console.log('Attempting session restoration...');
         newSocket.emit('request-session-restore');
+      } else if (partnerId && roomId) {
+        console.log('Using match data from URL parameters');
       }
     });
 
@@ -241,21 +244,27 @@ function ChatPageContent() {
     // Handle session restoration (Requirements 8.4, 8.5)
     newSocket.on('session-restored', (data) => {
       console.log('Session restored in chat page:', data);
-      if (data.wasReconnected) {
+      if (data.wasReconnected && !partnerId && !roomId) {
+        // Only use restored session if we don't have current match data
         setPartnerId(data.partnerId);
         setRoomId(data.roomId);
         setIsSessionRestored(true);
         setError('Session restored successfully. Reconnecting to video chat...');
         setTimeout(() => setError(null), 3000);
+      } else {
+        console.log('Ignoring session restoration - already have match data');
       }
     });
 
     newSocket.on('session-restore-failed', (data) => {
       console.log('Session restoration failed in chat page:', data.reason);
-      setError('Unable to restore previous session. Returning to home page.');
-      setTimeout(() => {
-        handleCallEnd();
-      }, 2000);
+      // Don't show error or redirect if we already have match data
+      if (!partnerId && !roomId) {
+        setError('Unable to restore previous session. Please try matching again.');
+        setTimeout(() => {
+          handleCallEnd();
+        }, 2000);
+      }
     });
 
     // Handle partner temporary disconnection (Requirements 8.5)
