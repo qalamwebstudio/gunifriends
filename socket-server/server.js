@@ -27,9 +27,13 @@ const io = new Server(server, {
   cors: {
     origin: CORS_ORIGINS,
     methods: ['GET', 'POST'],
-    credentials: true
+    credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization']
   },
-  transports: ['websocket', 'polling']
+  transports: ['websocket', 'polling'],
+  allowEIO3: true,
+  pingTimeout: 60000,
+  pingInterval: 25000
 });
 
 // MongoDB connection
@@ -421,9 +425,13 @@ setInterval(() => {
 async function startServer() {
   await connectToDatabase();
   
-  server.listen(PORT, () => {
+  server.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Socket.io server running on port ${PORT}`);
     console.log(`🌐 CORS enabled for: ${CORS_ORIGINS.join(', ')}`);
+  });
+
+  server.on('error', (error) => {
+    console.error('❌ Server error:', error);
   });
 }
 

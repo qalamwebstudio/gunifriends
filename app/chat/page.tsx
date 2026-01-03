@@ -152,7 +152,13 @@ function ChatPageContent() {
       auth: {
         token
       },
-      transports: ['websocket', 'polling']
+      transports: ['polling', 'websocket'], // Try polling first, then websocket
+      timeout: 20000,
+      forceNew: true,
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionAttempts: 5,
+      maxReconnectionAttempts: 5
     });
 
     newSocket.on('connect', () => {
