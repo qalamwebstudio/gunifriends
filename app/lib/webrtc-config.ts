@@ -36,7 +36,7 @@ export function getWebRTCConfiguration(): WebRTCConfig {
   };
 
   // Add free TURN servers for better connectivity
-  // Using free public TURN servers for better NAT traversal
+  // Using multiple free public TURN servers for better NAT traversal
   config.iceServers.push(
     // Free TURN servers from Open Relay Project
     {
@@ -53,6 +53,32 @@ export function getWebRTCConfiguration(): WebRTCConfig {
       urls: 'turn:openrelay.metered.ca:443?transport=tcp',
       username: 'openrelayproject',
       credential: 'openrelayproject'
+    },
+    // Additional free TURN servers for redundancy
+    {
+      urls: 'turn:relay1.expressturn.com:3478',
+      username: 'efJBIBF6DKC8QBA6XB',
+      credential: 'Ghq6EzYyZJQcZnOh'
+    },
+    {
+      urls: 'turn:a.relay.metered.ca:80',
+      username: 'a4e4c2c4e47852d693e5e4ca',
+      credential: 'uK56+px/q3BmZFxr'
+    },
+    {
+      urls: 'turn:a.relay.metered.ca:80?transport=tcp',
+      username: 'a4e4c2c4e47852d693e5e4ca',
+      credential: 'uK56+px/q3BmZFxr'
+    },
+    {
+      urls: 'turn:a.relay.metered.ca:443',
+      username: 'a4e4c2c4e47852d693e5e4ca',
+      credential: 'uK56+px/q3BmZFxr'
+    },
+    {
+      urls: 'turn:a.relay.metered.ca:443?transport=tcp',
+      username: 'a4e4c2c4e47852d693e5e4ca',
+      credential: 'uK56+px/q3BmZFxr'
     }
   );
 

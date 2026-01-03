@@ -149,22 +149,32 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Handle WebRTC signaling
+  // Handle WebRTC signaling with better error handling
   socket.on('offer', (data) => {
     console.log(`📤 Offer received from ${socket.userEmail} (${socket.id})`);
     const session = activeSessions.get(socket.userId);
     
     if (session && session.partnerId) {
       const partnerSession = activeSessions.get(session.partnerId);
-      if (partnerSession) {
+      if (partnerSession && partnerSession.socketId) {
         console.log(`📨 Forwarding offer to ${partnerSession.email} (${partnerSession.socketId})`);
-        io.to(partnerSession.socketId).emit('offer', data);
+        
+        // Ensure the partner socket is still connected
+        const partnerSocket = io.sockets.sockets.get(partnerSession.socketId);
+        if (partnerSocket && partnerSocket.connected) {
+          partnerSocket.emit('offer', data);
+        } else {
+          console.log(`❌ Partner socket not connected for offer from ${socket.userEmail}`);
+          socket.emit('error', 'Partner is not connected');
+        }
       } else {
         console.log(`❌ Partner session not found for offer from ${socket.userEmail}. Partner ID: ${session.partnerId}`);
         console.log(`📊 Active sessions:`, Array.from(activeSessions.keys()));
+        socket.emit('error', 'Partner session not found');
       }
     } else {
       console.log(`❌ No partner found for offer from ${socket.userEmail}. Session:`, session);
+      socket.emit('error', 'No active partner session');
     }
   });
 
@@ -173,15 +183,25 @@ io.on('connection', (socket) => {
     const session = activeSessions.get(socket.userId);
     if (session && session.partnerId) {
       const partnerSession = activeSessions.get(session.partnerId);
-      if (partnerSession) {
+      if (partnerSession && partnerSession.socketId) {
         console.log(`📨 Forwarding answer to ${partnerSession.email} (${partnerSession.socketId})`);
-        io.to(partnerSession.socketId).emit('answer', data);
+        
+        // Ensure the partner socket is still connected
+        const partnerSocket = io.sockets.sockets.get(partnerSession.socketId);
+        if (partnerSocket && partnerSocket.connected) {
+          partnerSocket.emit('answer', data);
+        } else {
+          console.log(`❌ Partner socket not connected for answer from ${socket.userEmail}`);
+          socket.emit('error', 'Partner is not connected');
+        }
       } else {
         console.log(`❌ Partner session not found for answer from ${socket.userEmail}. Partner ID: ${session.partnerId}`);
         console.log(`📊 Active sessions:`, Array.from(activeSessions.keys()));
+        socket.emit('error', 'Partner session not found');
       }
     } else {
       console.log(`❌ No partner found for answer from ${socket.userEmail}. Session:`, session);
+      socket.emit('error', 'No active partner session');
     }
   });
 
@@ -189,8 +209,12 @@ io.on('connection', (socket) => {
     const session = activeSessions.get(socket.userId);
     if (session && session.partnerId) {
       const partnerSession = activeSessions.get(session.partnerId);
-      if (partnerSession) {
-        io.to(partnerSession.socketId).emit('ice-candidate', data);
+      if (partnerSession && partnerSession.socketId) {
+        // Ensure the partner socket is still connected
+        const partnerSocket = io.sockets.sockets.get(partnerSession.socketId);
+        if (partnerSocket && partnerSocket.connected) {
+          partnerSocket.emit('ice-candidate', data);
+        }
       }
     }
   });
