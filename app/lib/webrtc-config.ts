@@ -35,7 +35,28 @@ export function getWebRTCConfiguration(): WebRTCConfig {
     rtcpMuxPolicy: 'require', // Multiplex RTP and RTCP
   };
 
-  // Add TURN servers if configured via environment variables
+  // Add free TURN servers for better connectivity
+  // Using free public TURN servers for better NAT traversal
+  config.iceServers.push(
+    // Free TURN servers from Open Relay Project
+    {
+      urls: 'turn:openrelay.metered.ca:80',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    }
+  );
+
+  // Add custom TURN servers if configured via environment variables
   const turnServer = process.env.NEXT_PUBLIC_TURN_SERVER;
   const turnUsername = process.env.NEXT_PUBLIC_TURN_USERNAME;
   const turnCredential = process.env.NEXT_PUBLIC_TURN_CREDENTIAL;
@@ -53,10 +74,10 @@ export function getWebRTCConfiguration(): WebRTCConfig {
         credential: turnCredential
       }
     );
-    console.log('TURN servers configured for NAT traversal');
-  } else {
-    console.warn('TURN servers not configured - connections may fail behind restrictive NATs');
+    console.log('Custom TURN servers configured for NAT traversal');
   }
+  
+  console.log('TURN servers configured for NAT traversal');
 
   return config;
 }
@@ -263,6 +284,19 @@ export async function getMediaStreamWithFallback(): Promise<MediaStream> {
     MediaConstraints.high,
     MediaConstraints.medium,
     MediaConstraints.low,
+    // Add more aggressive fallbacks
+    {
+      video: {
+        width: { ideal: 320 },
+        height: { ideal: 240 },
+        frameRate: { ideal: 10 }
+      },
+      audio: true
+    },
+    {
+      video: true,
+      audio: true
+    },
     MediaConstraints.audioOnly
   ];
 
@@ -271,12 +305,28 @@ export async function getMediaStreamWithFallback(): Promise<MediaStream> {
   for (let i = 0; i < configurations.length; i++) {
     try {
       console.log(`Attempting media configuration ${i + 1}/${configurations.length}`);
-      const stream = await navigator.mediaDevices.getUserMedia(configurations[i]);
+      
+      // Add timeout to prevent hanging
+      const mediaPromise = navigator.mediaDevices.getUserMedia(configurations[i]);
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Media access timeout')), 10000);
+      });
+      
+      const stream = await Promise.race([mediaPromise, timeoutPromise]);
       
       if (i > 0) {
         console.log(`Successfully obtained media with fallback configuration ${i + 1}`);
       }
       
+      // Verify stream has active tracks
+      const videoTracks = stream.getVideoTracks();
+      const audioTracks = stream.getAudioTracks();
+      
+      if (videoTracks.length === 0 && audioTracks.length === 0) {
+        throw new Error('No active media tracks');
+      }
+      
+      console.log(`Media stream obtained: ${videoTracks.length} video tracks, ${audioTracks.length} audio tracks`);
       return stream;
     } catch (error) {
       console.error(`Media configuration ${i + 1} failed:`, error);
@@ -285,6 +335,11 @@ export async function getMediaStreamWithFallback(): Promise<MediaStream> {
       // If this is a permission error, don't try other configurations
       if (error instanceof Error && error.name === 'NotAllowedError') {
         break;
+      }
+      
+      // Add small delay between attempts
+      if (i < configurations.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
     }
   }

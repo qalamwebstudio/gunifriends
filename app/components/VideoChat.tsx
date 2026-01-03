@@ -42,11 +42,11 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
   const [adaptiveStreamingEnabled, setAdaptiveStreamingEnabled] = useState(false);
 
   // Constants for error handling and retry logic
-  const MAX_RECONNECT_ATTEMPTS = 5;
-  const CONNECTION_TIMEOUT_MS = 30000; // 30 seconds
-  const INITIAL_RECONNECT_DELAY_MS = 1000; // 1 second
-  const MAX_RECONNECT_DELAY_MS = 16000; // 16 seconds
-  const ICE_GATHERING_TIMEOUT_MS = 10000; // 10 seconds
+  const MAX_RECONNECT_ATTEMPTS = 3; // Reduced from 5
+  const CONNECTION_TIMEOUT_MS = 20000; // Reduced from 30s to 20s
+  const INITIAL_RECONNECT_DELAY_MS = 2000; // Increased from 1s to 2s
+  const MAX_RECONNECT_DELAY_MS = 10000; // Reduced from 16s to 10s
+  const ICE_GATHERING_TIMEOUT_MS = 8000; // Reduced from 10s to 8s
 
   // WebRTC configuration with STUN/TURN servers for NAT traversal
   const rtcConfiguration = getWebRTCConfiguration();
@@ -229,6 +229,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
   const initializeVideoChat = async () => {
     try {
       setConnectionState('initializing');
+      setMediaError(null);
       
       // Test network connectivity first
       console.log('Testing network connectivity...');
@@ -239,20 +240,36 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         onError('Network connectivity issues detected. Connection may be unstable.');
       }
       
-      // Get user media with fallback
-      const stream = await getMediaStreamWithFallback();
-      localStreamRef.current = stream;
-      
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream;
+      // Get user media with fallback - this is critical
+      console.log('Requesting camera and microphone access...');
+      let stream: MediaStream;
+      try {
+        stream = await getMediaStreamWithFallback();
+        localStreamRef.current = stream;
+        
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = stream;
+        }
+        
+        console.log('Media access successful:', {
+          videoTracks: stream.getVideoTracks().length,
+          audioTracks: stream.getAudioTracks().length
+        });
+      } catch (mediaError) {
+        console.error('Failed to get media stream:', mediaError);
+        setMediaError(mediaError instanceof Error ? mediaError.message : 'Failed to access camera/microphone');
+        return; // Don't proceed without media
       }
 
       // Create peer connection
+      console.log('Creating WebRTC peer connection...');
       const peerConnection = createPeerConnection();
       peerConnectionRef.current = peerConnection;
 
       // Add local stream to peer connection
-      stream.getTracks().forEach(track => {
+      console.log('Adding local stream to peer connection...');
+      stream.getTracks().forEach((track, index) => {
+        console.log(`Adding track ${index + 1}: ${track.kind} (${track.label})`);
         peerConnection.addTrack(track, stream);
       });
 
@@ -263,11 +280,16 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       const shouldInitiate = roomId < partnerId;
       setIsInitiator(shouldInitiate);
       
+      console.log('Should initiate connection:', shouldInitiate);
+      
       if (shouldInitiate) {
-        await createOffer();
+        // Add a small delay to ensure both sides are ready
+        setTimeout(() => {
+          createOffer();
+        }, 1000);
       }
 
-      // Set connection timeout
+      // Set connection timeout with more reasonable duration
       const timeout = setTimeout(() => {
         if (connectionState !== 'connected') {
           console.log('Connection timeout reached');
@@ -278,7 +300,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       
     } catch (error) {
       console.error('Failed to initialize video chat:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Failed to access camera/microphone';
+      const errorMessage = error instanceof Error ? error.message : 'Failed to initialize video chat';
       setMediaError(errorMessage);
       onError(errorMessage);
     }
@@ -289,13 +311,15 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
 
     // Handle ICE candidates with timeout
     let iceGatheringTimeout: NodeJS.Timeout | null = null;
+    let iceCandidateCount = 0;
     
     peerConnection.onicecandidate = (event) => {
       if (event.candidate) {
-        console.log('ICE candidate found:', event.candidate.type);
+        iceCandidateCount++;
+        console.log(`ICE candidate found (${iceCandidateCount}):`, event.candidate.type, event.candidate.protocol);
         socket.emit('ice-candidate', event.candidate.toJSON());
       } else {
-        console.log('ICE gathering completed');
+        console.log(`ICE gathering completed with ${iceCandidateCount} candidates`);
         if (iceGatheringTimeout) {
           clearTimeout(iceGatheringTimeout);
           iceGatheringTimeout = null;
@@ -303,15 +327,16 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       }
     };
 
-    // Set ICE gathering timeout
+    // Set ICE gathering timeout with more aggressive settings
     peerConnection.onicegatheringstatechange = () => {
       console.log('ICE gathering state:', peerConnection.iceGatheringState);
       
       if (peerConnection.iceGatheringState === 'gathering') {
+        // Shorter timeout for mobile networks
         iceGatheringTimeout = setTimeout(() => {
-          console.log('ICE gathering timeout - proceeding with available candidates');
+          console.log(`ICE gathering timeout - proceeding with ${iceCandidateCount} candidates`);
           // Don't fail the connection, just proceed with what we have
-        }, ICE_GATHERING_TIMEOUT_MS);
+        }, 8000); // Reduced from 10s to 8s
       } else if (peerConnection.iceGatheringState === 'complete') {
         if (iceGatheringTimeout) {
           clearTimeout(iceGatheringTimeout);
@@ -322,7 +347,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
 
     // Handle remote stream
     peerConnection.ontrack = (event) => {
-      console.log('Received remote stream');
+      console.log('Received remote stream with', event.streams[0].getTracks().length, 'tracks');
       if (remoteVideoRef.current && event.streams[0]) {
         remoteVideoRef.current.srcObject = event.streams[0];
       }
@@ -382,11 +407,21 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
           break;
         case 'failed':
           console.log('ICE connectivity checks failed');
-          handleConnectionFailure();
+          // Give it a moment before failing - sometimes it recovers
+          setTimeout(() => {
+            if (peerConnection.iceConnectionState === 'failed') {
+              handleConnectionFailure();
+            }
+          }, 2000);
           break;
         case 'disconnected':
           console.log('ICE connection disconnected');
-          handleConnectionLoss();
+          // Don't immediately fail - might reconnect
+          setTimeout(() => {
+            if (peerConnection.iceConnectionState === 'disconnected') {
+              handleConnectionLoss();
+            }
+          }, 3000);
           break;
         case 'closed':
           console.log('ICE connection closed');
@@ -415,18 +450,30 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     if (!peerConnectionRef.current) return;
 
     try {
+      console.log('Creating WebRTC offer...');
       const offer = await peerConnectionRef.current.createOffer({
         offerToReceiveAudio: true,
-        offerToReceiveVideo: true
+        offerToReceiveVideo: true,
+        iceRestart: false // Don't restart ICE unless necessary
       });
       
+      console.log('Setting local description...');
       await peerConnectionRef.current.setLocalDescription(offer);
+      
+      console.log('Sending offer to partner...');
       socket.emit('offer', offer);
       
-      console.log('Offer created and sent');
+      console.log('Offer created and sent successfully');
     } catch (error) {
       console.error('Error creating offer:', error);
-      onError('Failed to create connection offer.');
+      onError('Failed to create connection offer. Retrying...');
+      
+      // Retry after a short delay
+      setTimeout(() => {
+        if (peerConnectionRef.current && peerConnectionRef.current.signalingState === 'stable') {
+          createOffer();
+        }
+      }, 2000);
     }
   };
 
@@ -434,16 +481,28 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     if (!peerConnectionRef.current) return;
 
     try {
+      console.log('Received offer, setting remote description...');
       await peerConnectionRef.current.setRemoteDescription(offer);
       
+      console.log('Creating answer...');
       const answer = await peerConnectionRef.current.createAnswer();
+      
+      console.log('Setting local description with answer...');
       await peerConnectionRef.current.setLocalDescription(answer);
       
+      console.log('Sending answer to partner...');
       socket.emit('answer', answer);
-      console.log('Answer created and sent');
+      console.log('Answer created and sent successfully');
     } catch (error) {
       console.error('Error handling offer:', error);
-      onError('Failed to handle connection offer.');
+      onError('Failed to handle connection offer. Retrying...');
+      
+      // Retry after a short delay
+      setTimeout(() => {
+        if (peerConnectionRef.current && offer) {
+          handleReceiveOffer(offer);
+        }
+      }, 2000);
     }
   }, [socket, onError]);
 
@@ -451,11 +510,19 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     if (!peerConnectionRef.current) return;
 
     try {
+      console.log('Received answer, setting remote description...');
       await peerConnectionRef.current.setRemoteDescription(answer);
-      console.log('Answer received and set');
+      console.log('Answer received and set successfully');
     } catch (error) {
       console.error('Error handling answer:', error);
-      onError('Failed to handle connection answer.');
+      onError('Failed to handle connection answer. Retrying...');
+      
+      // Retry after a short delay
+      setTimeout(() => {
+        if (peerConnectionRef.current && answer) {
+          handleReceiveAnswer(answer);
+        }
+      }, 2000);
     }
   }, [onError]);
 
