@@ -191,8 +191,7 @@ export default function Home() {
       forceNew: true,
       reconnection: true,
       reconnectionDelay: 1000,
-      reconnectionAttempts: 5,
-      maxReconnectionAttempts: 5
+      reconnectionAttempts: 5
     });
 
     newSocket.on('connect', () => {
