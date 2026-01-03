@@ -276,17 +276,52 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       setConnectionState('connecting');
       
       // Determine if this client should initiate the call
-      // Use a simple comparison to ensure only one side initiates
-      const shouldInitiate = roomId < partnerId;
+      // Use user ID comparison to ensure only one side initiates
+      // We need to get our own user ID from localStorage or socket
+      const token = localStorage.getItem('authToken');
+      let currentUserId = '';
+      
+      if (token) {
+        try {
+          // Decode JWT to get user ID (simple base64 decode of payload)
+          const payload = JSON.parse(atob(token.split('.')[1]));
+          currentUserId = payload.userId || '';
+        } catch (error) {
+          console.error('Failed to decode token:', error);
+          currentUserId = socket.id; // Fallback to socket ID
+        }
+      } else {
+        currentUserId = socket.id; // Fallback to socket ID
+      }
+      
+      const shouldInitiate = currentUserId < partnerId;
       setIsInitiator(shouldInitiate);
       
-      console.log('Should initiate connection:', shouldInitiate);
+      console.log('Connection initiation logic:', {
+        currentUserId,
+        partnerId,
+        roomId,
+        shouldInitiate,
+        comparison: `${currentUserId} < ${partnerId} = ${shouldInitiate}`
+      });
       
       if (shouldInitiate) {
+        console.log('🚀 This client will initiate the connection');
         // Add a small delay to ensure both sides are ready
         setTimeout(() => {
+          console.log('Creating offer after delay...');
           createOffer();
-        }, 1000);
+        }, 2000); // Increased delay to 2 seconds
+      } else {
+        console.log('⏳ This client will wait for offer from partner');
+        
+        // Add a fallback timeout - if no offer is received within 10 seconds, create one anyway
+        setTimeout(() => {
+          if (peerConnectionRef.current && peerConnectionRef.current.signalingState === 'stable') {
+            console.log('🔄 No offer received within 10s, creating offer as fallback');
+            createOffer();
+          }
+        }, 10000);
       }
 
       // Set connection timeout with more reasonable duration
@@ -447,30 +482,34 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
   };
 
   const createOffer = async () => {
-    if (!peerConnectionRef.current) return;
+    if (!peerConnectionRef.current) {
+      console.log('❌ Cannot create offer: peer connection not available');
+      return;
+    }
 
     try {
-      console.log('Creating WebRTC offer...');
+      console.log('📝 Creating WebRTC offer...');
       const offer = await peerConnectionRef.current.createOffer({
         offerToReceiveAudio: true,
         offerToReceiveVideo: true,
         iceRestart: false // Don't restart ICE unless necessary
       });
       
-      console.log('Setting local description...');
+      console.log('📝 Setting local description...');
       await peerConnectionRef.current.setLocalDescription(offer);
       
-      console.log('Sending offer to partner...');
+      console.log('📤 Sending offer to partner via socket...');
       socket.emit('offer', offer);
       
-      console.log('Offer created and sent successfully');
+      console.log('✅ Offer created and sent successfully');
     } catch (error) {
-      console.error('Error creating offer:', error);
+      console.error('❌ Error creating offer:', error);
       onError('Failed to create connection offer. Retrying...');
       
       // Retry after a short delay
       setTimeout(() => {
         if (peerConnectionRef.current && peerConnectionRef.current.signalingState === 'stable') {
+          console.log('🔄 Retrying offer creation...');
           createOffer();
         }
       }, 2000);
@@ -481,20 +520,20 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     if (!peerConnectionRef.current) return;
 
     try {
-      console.log('Received offer, setting remote description...');
+      console.log('📨 Received offer from partner, setting remote description...');
       await peerConnectionRef.current.setRemoteDescription(offer);
       
-      console.log('Creating answer...');
+      console.log('📝 Creating answer...');
       const answer = await peerConnectionRef.current.createAnswer();
       
-      console.log('Setting local description with answer...');
+      console.log('📝 Setting local description with answer...');
       await peerConnectionRef.current.setLocalDescription(answer);
       
-      console.log('Sending answer to partner...');
+      console.log('📤 Sending answer to partner...');
       socket.emit('answer', answer);
-      console.log('Answer created and sent successfully');
+      console.log('✅ Answer created and sent successfully');
     } catch (error) {
-      console.error('Error handling offer:', error);
+      console.error('❌ Error handling offer:', error);
       onError('Failed to handle connection offer. Retrying...');
       
       // Retry after a short delay
@@ -510,11 +549,11 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     if (!peerConnectionRef.current) return;
 
     try {
-      console.log('Received answer, setting remote description...');
+      console.log('📨 Received answer from partner, setting remote description...');
       await peerConnectionRef.current.setRemoteDescription(answer);
-      console.log('Answer received and set successfully');
+      console.log('✅ Answer received and set successfully');
     } catch (error) {
-      console.error('Error handling answer:', error);
+      console.error('❌ Error handling answer:', error);
       onError('Failed to handle connection answer. Retrying...');
       
       // Retry after a short delay

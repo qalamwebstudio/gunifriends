@@ -136,22 +136,34 @@ io.on('connection', (socket) => {
 
   // Handle WebRTC signaling
   socket.on('offer', (data) => {
+    console.log(`📤 Offer received from ${socket.userEmail}`);
     const session = activeSessions.get(socket.userId);
     if (session && session.partnerId) {
       const partnerSession = activeSessions.get(session.partnerId);
       if (partnerSession) {
+        console.log(`📨 Forwarding offer to ${partnerSession.email}`);
         io.to(partnerSession.socketId).emit('offer', data);
+      } else {
+        console.log(`❌ Partner session not found for offer from ${socket.userEmail}`);
       }
+    } else {
+      console.log(`❌ No partner found for offer from ${socket.userEmail}`);
     }
   });
 
   socket.on('answer', (data) => {
+    console.log(`📤 Answer received from ${socket.userEmail}`);
     const session = activeSessions.get(socket.userId);
     if (session && session.partnerId) {
       const partnerSession = activeSessions.get(session.partnerId);
       if (partnerSession) {
+        console.log(`📨 Forwarding answer to ${partnerSession.email}`);
         io.to(partnerSession.socketId).emit('answer', data);
+      } else {
+        console.log(`❌ Partner session not found for answer from ${socket.userEmail}`);
       }
+    } else {
+      console.log(`❌ No partner found for answer from ${socket.userEmail}`);
     }
   });
 
