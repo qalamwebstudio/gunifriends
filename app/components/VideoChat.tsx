@@ -288,10 +288,10 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
           currentUserId = payload.userId || '';
         } catch (error) {
           console.error('Failed to decode token:', error);
-          currentUserId = socket.id; // Fallback to socket ID
+          currentUserId = socket.id || `fallback_${Date.now()}`; // Fallback to socket ID or generate one
         }
       } else {
-        currentUserId = socket.id; // Fallback to socket ID
+        currentUserId = socket.id || `fallback_${Date.now()}`; // Fallback to socket ID or generate one
       }
       
       const shouldInitiate = currentUserId < partnerId;
