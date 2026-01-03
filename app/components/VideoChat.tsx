@@ -81,6 +81,33 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     socket.on('partner-temporarily-disconnected', handlePartnerTemporarilyDisconnected);
     socket.on('partner-reconnected', handlePartnerReconnected);
     socket.on('session-timeout', handleSessionTimeout);
+    
+    // Handle socket errors
+    socket.on('error', (errorMessage) => {
+      console.error('Socket error in VideoChat:', errorMessage);
+      
+      // Don't immediately end call on partner session errors - try to recover
+      if (errorMessage.includes('Partner session not found') || 
+          errorMessage.includes('No active partner session') ||
+          errorMessage.includes('Partner not connected')) {
+        console.log('Partner session error in VideoChat - attempting recovery...');
+        onError(`Connection issue: ${errorMessage}. Attempting to reconnect...`);
+        
+        // Try to recover by recreating the connection
+        setTimeout(() => {
+          if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+            console.log('Attempting to recover from partner session error...');
+            attemptReconnection();
+          } else {
+            console.log('Max recovery attempts reached, ending call');
+            onError('Unable to establish connection with partner. Please try again.');
+            setTimeout(() => onCallEnd(), 3000);
+          }
+        }, 2000);
+      } else {
+        onError(errorMessage);
+      }
+    });
 
     return () => {
       socket.off('offer', handleReceiveOffer);
@@ -92,6 +119,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       socket.off('partner-temporarily-disconnected', handlePartnerTemporarilyDisconnected);
       socket.off('partner-reconnected', handlePartnerReconnected);
       socket.off('session-timeout', handleSessionTimeout);
+      socket.off('error');
     };
   }, [socket]);
 

@@ -195,7 +195,27 @@ function ChatPageContent() {
 
     newSocket.on('error', (errorMessage) => {
       console.error('Server error:', errorMessage);
-      setError(errorMessage);
+      
+      // Don't immediately redirect on certain errors - try to recover
+      if (errorMessage.includes('Partner session not found') || 
+          errorMessage.includes('No active partner session') ||
+          errorMessage.includes('Partner not connected')) {
+        console.log('Partner session error - attempting to recover...');
+        setError(`Connection issue: ${errorMessage}. Retrying...`);
+        
+        // Try to rejoin matching pool after a delay
+        setTimeout(() => {
+          if (newSocket.connected) {
+            console.log('Attempting to rejoin matching pool...');
+            newSocket.emit('leave-matching-pool');
+            setTimeout(() => {
+              newSocket.emit('join-matching-pool');
+            }, 1000);
+          }
+        }, 2000);
+      } else {
+        setError(errorMessage);
+      }
     });
 
     // Handle session timeout from server (Requirements 8.3)

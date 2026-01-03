@@ -154,54 +154,86 @@ io.on('connection', (socket) => {
     console.log(`📤 Offer received from ${socket.userEmail} (${socket.id})`);
     const session = activeSessions.get(socket.userId);
     
-    if (session && session.partnerId) {
-      const partnerSession = activeSessions.get(session.partnerId);
-      if (partnerSession && partnerSession.socketId) {
-        console.log(`📨 Forwarding offer to ${partnerSession.email} (${partnerSession.socketId})`);
-        
-        // Ensure the partner socket is still connected
-        const partnerSocket = io.sockets.sockets.get(partnerSession.socketId);
-        if (partnerSocket && partnerSocket.connected) {
-          partnerSocket.emit('offer', data);
-        } else {
-          console.log(`❌ Partner socket not connected for offer from ${socket.userEmail}`);
-          socket.emit('error', 'Partner is not connected');
-        }
-      } else {
-        console.log(`❌ Partner session not found for offer from ${socket.userEmail}. Partner ID: ${session.partnerId}`);
-        console.log(`📊 Active sessions:`, Array.from(activeSessions.keys()));
-        socket.emit('error', 'Partner session not found');
-      }
+    if (!session) {
+      console.log(`❌ No session found for user ${socket.userEmail}`);
+      socket.emit('error', 'User session not found');
+      return;
+    }
+    
+    if (!session.partnerId) {
+      console.log(`❌ No partner ID in session for ${socket.userEmail}. Session:`, session);
+      socket.emit('error', 'No partner assigned to session');
+      return;
+    }
+    
+    const partnerSession = activeSessions.get(session.partnerId);
+    if (!partnerSession) {
+      console.log(`❌ Partner session not found for offer from ${socket.userEmail}. Partner ID: ${session.partnerId}`);
+      console.log(`📊 Active sessions:`, Array.from(activeSessions.keys()));
+      console.log(`📊 Session details:`, session);
+      socket.emit('error', 'Partner session not found');
+      return;
+    }
+    
+    if (!partnerSession.socketId) {
+      console.log(`❌ Partner session has no socket ID for ${socket.userEmail}. Partner session:`, partnerSession);
+      socket.emit('error', 'Partner not connected');
+      return;
+    }
+    
+    console.log(`📨 Forwarding offer to ${partnerSession.email} (${partnerSession.socketId})`);
+    
+    // Ensure the partner socket is still connected
+    const partnerSocket = io.sockets.sockets.get(partnerSession.socketId);
+    if (partnerSocket && partnerSocket.connected) {
+      partnerSocket.emit('offer', data);
+      console.log(`✅ Offer forwarded successfully to ${partnerSession.email}`);
     } else {
-      console.log(`❌ No partner found for offer from ${socket.userEmail}. Session:`, session);
-      socket.emit('error', 'No active partner session');
+      console.log(`❌ Partner socket not connected for offer from ${socket.userEmail}`);
+      socket.emit('error', 'Partner is not connected');
     }
   });
 
   socket.on('answer', (data) => {
     console.log(`📤 Answer received from ${socket.userEmail} (${socket.id})`);
     const session = activeSessions.get(socket.userId);
-    if (session && session.partnerId) {
-      const partnerSession = activeSessions.get(session.partnerId);
-      if (partnerSession && partnerSession.socketId) {
-        console.log(`📨 Forwarding answer to ${partnerSession.email} (${partnerSession.socketId})`);
-        
-        // Ensure the partner socket is still connected
-        const partnerSocket = io.sockets.sockets.get(partnerSession.socketId);
-        if (partnerSocket && partnerSocket.connected) {
-          partnerSocket.emit('answer', data);
-        } else {
-          console.log(`❌ Partner socket not connected for answer from ${socket.userEmail}`);
-          socket.emit('error', 'Partner is not connected');
-        }
-      } else {
-        console.log(`❌ Partner session not found for answer from ${socket.userEmail}. Partner ID: ${session.partnerId}`);
-        console.log(`📊 Active sessions:`, Array.from(activeSessions.keys()));
-        socket.emit('error', 'Partner session not found');
-      }
+    
+    if (!session) {
+      console.log(`❌ No session found for user ${socket.userEmail}`);
+      socket.emit('error', 'User session not found');
+      return;
+    }
+    
+    if (!session.partnerId) {
+      console.log(`❌ No partner ID in session for ${socket.userEmail}`);
+      socket.emit('error', 'No partner assigned to session');
+      return;
+    }
+    
+    const partnerSession = activeSessions.get(session.partnerId);
+    if (!partnerSession) {
+      console.log(`❌ Partner session not found for answer from ${socket.userEmail}. Partner ID: ${session.partnerId}`);
+      console.log(`📊 Active sessions:`, Array.from(activeSessions.keys()));
+      socket.emit('error', 'Partner session not found');
+      return;
+    }
+    
+    if (!partnerSession.socketId) {
+      console.log(`❌ Partner session has no socket ID for ${socket.userEmail}`);
+      socket.emit('error', 'Partner not connected');
+      return;
+    }
+    
+    console.log(`📨 Forwarding answer to ${partnerSession.email} (${partnerSession.socketId})`);
+    
+    // Ensure the partner socket is still connected
+    const partnerSocket = io.sockets.sockets.get(partnerSession.socketId);
+    if (partnerSocket && partnerSocket.connected) {
+      partnerSocket.emit('answer', data);
+      console.log(`✅ Answer forwarded successfully to ${partnerSession.email}`);
     } else {
-      console.log(`❌ No partner found for answer from ${socket.userEmail}. Session:`, session);
-      socket.emit('error', 'No active partner session');
+      console.log(`❌ Partner socket not connected for answer from ${socket.userEmail}`);
+      socket.emit('error', 'Partner is not connected');
     }
   });
 
@@ -258,14 +290,35 @@ io.on('connection', (socket) => {
 
   // Handle session restore request
   socket.on('request-session-restore', () => {
+    console.log(`🔄 Session restore requested by ${socket.userEmail}`);
     const session = activeSessions.get(socket.userId);
-    if (session && session.partnerId && session.roomId) {
-      socket.emit('session-restored', {
+    
+    if (session) {
+      console.log(`📊 Current session for ${socket.userEmail}:`, {
+        status: session.status,
         partnerId: session.partnerId,
         roomId: session.roomId,
-        wasReconnected: true
+        hasPartner: !!session.partnerId
       });
+      
+      if (session.partnerId && session.roomId) {
+        const partnerSession = activeSessions.get(session.partnerId);
+        console.log(`📊 Partner session exists: ${!!partnerSession}`);
+        
+        socket.emit('session-restored', {
+          partnerId: session.partnerId,
+          roomId: session.roomId,
+          wasReconnected: true
+        });
+        console.log(`✅ Session restored for ${socket.userEmail}`);
+      } else {
+        console.log(`❌ Session restore failed for ${socket.userEmail}: incomplete session data`);
+        socket.emit('session-restore-failed', {
+          reason: 'No active session found'
+        });
+      }
     } else {
+      console.log(`❌ Session restore failed for ${socket.userEmail}: no session found`);
       socket.emit('session-restore-failed', {
         reason: 'No active session found'
       });
@@ -353,9 +406,24 @@ function createMatch(userId1, userId2) {
   const user1Session = activeSessions.get(userId1);
   const user2Session = activeSessions.get(userId2);
 
-  if (!user1Session || !user2Session) return;
+  if (!user1Session || !user2Session) {
+    console.log(`❌ Cannot create match: missing sessions. User1: ${!!user1Session}, User2: ${!!user2Session}`);
+    return;
+  }
 
   const roomId = generateRoomId();
+
+  console.log(`🎯 Creating match between ${user1Session.email} and ${user2Session.email}`);
+  console.log(`📊 Before match - User1 session:`, {
+    userId: userId1,
+    socketId: user1Session.socketId,
+    status: user1Session.status
+  });
+  console.log(`📊 Before match - User2 session:`, {
+    userId: userId2,
+    socketId: user2Session.socketId,
+    status: user2Session.status
+  });
 
   // Remove from matching pool
   matchingPool.delete(userId1);
@@ -365,25 +433,54 @@ function createMatch(userId1, userId2) {
   user1Session.status = 'matched';
   user1Session.partnerId = userId2;
   user1Session.roomId = roomId;
+  user1Session.lastActivity = new Date(); // Update activity timestamp
   activeSessions.set(userId1, user1Session);
 
   user2Session.status = 'matched';
   user2Session.partnerId = userId1;
   user2Session.roomId = roomId;
+  user2Session.lastActivity = new Date(); // Update activity timestamp
   activeSessions.set(userId2, user2Session);
 
-  // Notify both users
-  io.to(user1Session.socketId).emit('match-found', {
-    partnerId: userId2,
-    roomId: roomId
+  console.log(`📊 After match - User1 session:`, {
+    userId: userId1,
+    partnerId: user1Session.partnerId,
+    roomId: user1Session.roomId,
+    status: user1Session.status
+  });
+  console.log(`📊 After match - User2 session:`, {
+    userId: userId2,
+    partnerId: user2Session.partnerId,
+    roomId: user2Session.roomId,
+    status: user2Session.status
   });
 
-  io.to(user2Session.socketId).emit('match-found', {
-    partnerId: userId1,
-    roomId: roomId
-  });
+  // Notify both users
+  const user1Socket = io.sockets.sockets.get(user1Session.socketId);
+  const user2Socket = io.sockets.sockets.get(user2Session.socketId);
+  
+  if (user1Socket && user1Socket.connected) {
+    user1Socket.emit('match-found', {
+      partnerId: userId2,
+      roomId: roomId
+    });
+    console.log(`✅ Match notification sent to ${user1Session.email}`);
+  } else {
+    console.log(`❌ Cannot notify ${user1Session.email}: socket not connected`);
+  }
+  
+  if (user2Socket && user2Socket.connected) {
+    user2Socket.emit('match-found', {
+      partnerId: userId1,
+      roomId: roomId
+    });
+    console.log(`✅ Match notification sent to ${user2Session.email}`);
+  } else {
+    console.log(`❌ Cannot notify ${user2Session.email}: socket not connected`);
+  }
 
   console.log(`💕 Match created: ${user1Session.email} ↔ ${user2Session.email} (Room: ${roomId})`);
+  console.log(`📊 Total active sessions: ${activeSessions.size}`);
 }
 
 function handleDisconnection(socket) {
