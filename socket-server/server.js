@@ -92,15 +92,26 @@ io.use(authenticateSocket);
 io.on('connection', (socket) => {
   console.log(`✅ User connected: ${socket.userEmail} (${socket.id})`);
 
-  // Store active session
-  activeSessions.set(socket.userId, {
-    socketId: socket.id,
-    userId: socket.userId,
-    email: socket.userEmail,
-    university: socket.university,
-    status: 'connected',
-    connectedAt: new Date()
-  });
+  // Check if user already has an active session
+  const existingSession = activeSessions.get(socket.userId);
+  
+  if (existingSession) {
+    // Update existing session with new socket ID
+    console.log(`🔄 Updating socket ID for ${socket.userEmail}: ${existingSession.socketId} → ${socket.id}`);
+    existingSession.socketId = socket.id;
+    existingSession.connectedAt = new Date();
+    activeSessions.set(socket.userId, existingSession);
+  } else {
+    // Create new session
+    activeSessions.set(socket.userId, {
+      socketId: socket.id,
+      userId: socket.userId,
+      email: socket.userEmail,
+      university: socket.university,
+      status: 'connected',
+      connectedAt: new Date()
+    });
+  }
 
   // Handle joining matching pool
   socket.on('join-matching-pool', () => {
@@ -136,34 +147,37 @@ io.on('connection', (socket) => {
 
   // Handle WebRTC signaling
   socket.on('offer', (data) => {
-    console.log(`📤 Offer received from ${socket.userEmail}`);
+    console.log(`📤 Offer received from ${socket.userEmail} (${socket.id})`);
     const session = activeSessions.get(socket.userId);
+    
     if (session && session.partnerId) {
       const partnerSession = activeSessions.get(session.partnerId);
       if (partnerSession) {
-        console.log(`📨 Forwarding offer to ${partnerSession.email}`);
+        console.log(`📨 Forwarding offer to ${partnerSession.email} (${partnerSession.socketId})`);
         io.to(partnerSession.socketId).emit('offer', data);
       } else {
-        console.log(`❌ Partner session not found for offer from ${socket.userEmail}`);
+        console.log(`❌ Partner session not found for offer from ${socket.userEmail}. Partner ID: ${session.partnerId}`);
+        console.log(`📊 Active sessions:`, Array.from(activeSessions.keys()));
       }
     } else {
-      console.log(`❌ No partner found for offer from ${socket.userEmail}`);
+      console.log(`❌ No partner found for offer from ${socket.userEmail}. Session:`, session);
     }
   });
 
   socket.on('answer', (data) => {
-    console.log(`📤 Answer received from ${socket.userEmail}`);
+    console.log(`📤 Answer received from ${socket.userEmail} (${socket.id})`);
     const session = activeSessions.get(socket.userId);
     if (session && session.partnerId) {
       const partnerSession = activeSessions.get(session.partnerId);
       if (partnerSession) {
-        console.log(`📨 Forwarding answer to ${partnerSession.email}`);
+        console.log(`📨 Forwarding answer to ${partnerSession.email} (${partnerSession.socketId})`);
         io.to(partnerSession.socketId).emit('answer', data);
       } else {
-        console.log(`❌ Partner session not found for answer from ${socket.userEmail}`);
+        console.log(`❌ Partner session not found for answer from ${socket.userEmail}. Partner ID: ${session.partnerId}`);
+        console.log(`📊 Active sessions:`, Array.from(activeSessions.keys()));
       }
     } else {
-      console.log(`❌ No partner found for answer from ${socket.userEmail}`);
+      console.log(`❌ No partner found for answer from ${socket.userEmail}. Session:`, session);
     }
   });
 
