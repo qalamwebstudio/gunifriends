@@ -69,9 +69,26 @@ export interface ServerToClientEvents {
   'partner-timeout': () => void;
   'partner-temporarily-disconnected': (data: { partnerId: string; reason: string }) => void;
   'partner-reconnected': (data: { partnerId: string }) => void;
+  'partner-network-recovered': (data: { partnerId: string }) => void;
+  'partner-came-online': (data: { partnerId: string }) => void;
+  'partner-attempting-restore': (data: { partnerId: string; partnerEmail: string }) => void;
+  'partner-video-started': () => void;
   'session-timeout': () => void;
-  'session-restored': (data: { partnerId: string; roomId: string; wasReconnected: boolean }) => void;
+  'session-restored': (data: { 
+    partnerId: string; 
+    roomId: string; 
+    wasReconnected: boolean;
+    partnerLastSeen?: Date;
+    sessionAge?: number;
+  }) => void;
   'session-restore-failed': (data: { reason: string }) => void;
+  'heartbeat-ack': (data: {
+    timestamp: Date;
+    sessionActive: boolean;
+    partnerId?: string;
+    roomId?: string;
+    connectionQuality?: 'good' | 'fair' | 'poor';
+  }) => void;
   'offer': (offer: RTCSessionDescriptionInit) => void;
   'answer': (answer: RTCSessionDescriptionInit) => void;
   'ice-candidate': (candidate: RTCIceCandidateInit) => void;
@@ -82,7 +99,14 @@ export interface ServerToClientEvents {
 export interface ClientToServerEvents {
   'join-matching-pool': () => void;
   'leave-matching-pool': () => void;
-  'heartbeat': () => void;
+  'heartbeat': (data?: {
+    isVisible?: boolean;
+    connectionQuality?: 'good' | 'fair' | 'poor';
+    isInActiveCall?: boolean;
+    networkRecovered?: boolean;
+    isOnline?: boolean;
+    timestamp?: number;
+  }) => void;
   'browser-closing': () => void;
   'request-session-restore': () => void;
   'offer': (offer: RTCSessionDescriptionInit) => void;
@@ -91,6 +115,8 @@ export interface ClientToServerEvents {
   'end-call': () => void;
   'report-user': (data: { reportedUserId: string; category: string; description: string }) => void;
   'skip-user': () => void;
+  'video-call-started': () => void;
+  'webrtc-connection-state': (data: { connectionState: string; iceConnectionState: string }) => void;
 }
 
 // University Configuration

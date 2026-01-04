@@ -5,6 +5,21 @@ import { Socket } from 'socket.io-client';
 import { ClientToServerEvents, ServerToClientEvents } from '../types';
 import ReportModal from './ReportModal';
 import { getWebRTCConfiguration, testWebRTCConnectivity, getMediaStreamWithFallback, ConnectionQualityMonitor } from '../lib/webrtc-config';
+import { 
+  CONNECTION_CONFIG,
+  calculateExponentialBackoff,
+  getTimeoutForPhase,
+  getSessionTimeout,
+  INITIAL_CONNECTION_TIMEOUT_MS,
+  ICE_GATHERING_TIMEOUT_MS,
+  CONNECTION_SETUP_EXTENSION_MS,
+  MAX_RECONNECT_ATTEMPTS,
+  INITIAL_RECONNECT_DELAY_MS,
+  MAX_RECONNECT_DELAY_MS,
+  EXPONENTIAL_BACKOFF_MULTIPLIER,
+  DISCONNECTION_GRACE_PERIOD_MS,
+  ICE_FAILURE_GRACE_PERIOD_MS
+} from '../lib/connection-config';
 
 interface VideoChatProps {
   socket: Socket<ServerToClientEvents, ClientToServerEvents>;
@@ -34,22 +49,71 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
   const [isInitiator, setIsInitiator] = useState(false);
   const [mediaError, setMediaError] = useState<string | null>(null);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
-  const [connectionTimeout, setConnectionTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [initialConnectionTimeout, setInitialConnectionTimeout] = useState<NodeJS.Timeout | null>(null);
   const [reconnectAttempts, setReconnectAttempts] = useState(0);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [partnerTemporarilyDisconnected, setPartnerTemporarilyDisconnected] = useState(false);
   const [networkQuality, setNetworkQuality] = useState<'good' | 'fair' | 'poor'>('good');
   const [adaptiveStreamingEnabled, setAdaptiveStreamingEnabled] = useState(false);
+  const [isConnectionEstablished, setIsConnectionEstablished] = useState(false);
+  
+  // Grace period timers for connection state handling (Requirements 3.1, 3.2, 3.5)
+  const [disconnectionGraceTimer, setDisconnectionGraceTimer] = useState<NodeJS.Timeout | null>(null);
+  const [iceFailureGraceTimer, setIceFailureGraceTimer] = useState<NodeJS.Timeout | null>(null);
+  const [activeTimeoutTimers, setActiveTimeoutTimers] = useState<Set<NodeJS.Timeout>>(new Set());
 
-  // Constants for error handling and retry logic
-  const MAX_RECONNECT_ATTEMPTS = 3;
-  const CONNECTION_TIMEOUT_MS = 45000; // Increased to 45s for better WebRTC setup
-  const INITIAL_RECONNECT_DELAY_MS = 2000;
-  const MAX_RECONNECT_DELAY_MS = 10000;
-  const ICE_GATHERING_TIMEOUT_MS = 12000; // Increased to 12s for better ICE gathering
+  // Constants for error handling and retry logic (Requirements 4.2, 4.5)
+  // Using centralized configuration for consistent timeout values
+  const MAX_RECONNECT_ATTEMPTS_CONST = MAX_RECONNECT_ATTEMPTS; // 5 attempts for better reliability
+  
+  // Separate timeouts for different connection phases (Requirements 4.1, 4.4)
+  const INITIAL_CONNECTION_TIMEOUT_CONST = INITIAL_CONNECTION_TIMEOUT_MS; // 60s for initial setup
+  const CONNECTION_SETUP_EXTENSION_CONST = CONNECTION_SETUP_EXTENSION_MS; // 15s extension for retries
+  const INITIAL_RECONNECT_DELAY_CONST = INITIAL_RECONNECT_DELAY_MS; // 2s base delay
+  const MAX_RECONNECT_DELAY_CONST = MAX_RECONNECT_DELAY_MS; // 30s maximum delay
+  const EXPONENTIAL_BACKOFF_MULTIPLIER_CONST = EXPONENTIAL_BACKOFF_MULTIPLIER; // 2x multiplier
+  const ICE_GATHERING_TIMEOUT_CONST = ICE_GATHERING_TIMEOUT_MS; // 15s for ICE gathering
+  
+  // Grace periods for temporary connection issues (Requirements 3.1, 3.2, 3.5, 4.4)
+  const DISCONNECTION_GRACE_PERIOD_CONST = DISCONNECTION_GRACE_PERIOD_MS; // 10s grace period
+  const ICE_FAILURE_GRACE_PERIOD_CONST = ICE_FAILURE_GRACE_PERIOD_MS; // 5s grace period
+
+  // Utility function for calculating exponential backoff delays (Requirements 4.2)
+  const calculateExponentialBackoffDelay = (attempt: number, baseDelay: number = INITIAL_RECONNECT_DELAY_CONST, maxDelay: number = MAX_RECONNECT_DELAY_CONST): number => {
+    return calculateExponentialBackoff(attempt, baseDelay, maxDelay);
+  };
 
   // WebRTC configuration with STUN/TURN servers for NAT traversal
   const rtcConfiguration = getWebRTCConfiguration();
+
+  // Helper functions for timeout management (Requirements 3.5)
+  const addTimeoutTimer = (timer: NodeJS.Timeout) => {
+    setActiveTimeoutTimers(prev => new Set([...prev, timer]));
+  };
+
+  const removeTimeoutTimer = (timer: NodeJS.Timeout) => {
+    setActiveTimeoutTimers(prev => {
+      const newSet = new Set(prev);
+      newSet.delete(timer);
+      return newSet;
+    });
+  };
+
+  const clearAllTimeoutTimers = () => {
+    activeTimeoutTimers.forEach(timer => clearTimeout(timer));
+    setActiveTimeoutTimers(new Set());
+  };
+
+  const clearGraceTimers = () => {
+    if (disconnectionGraceTimer) {
+      clearTimeout(disconnectionGraceTimer);
+      setDisconnectionGraceTimer(null);
+    }
+    if (iceFailureGraceTimer) {
+      clearTimeout(iceFailureGraceTimer);
+      setIceFailureGraceTimer(null);
+    }
+  };
 
   // Initialize media stream and WebRTC connection
   useEffect(() => {
@@ -74,6 +138,8 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     socket.on('partner-temporarily-disconnected', handlePartnerTemporarilyDisconnected);
     socket.on('partner-reconnected', handlePartnerReconnected);
     socket.on('session-timeout', handleSessionTimeout);
+    socket.on('session-restored', handleSessionRestored);
+    socket.on('session-restore-failed', handleSessionRestoreFailed);
     
     // Handle socket errors
     socket.on('error', (errorMessage) => {
@@ -88,7 +154,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         
         // Try to recover by recreating the connection
         setTimeout(() => {
-          if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+          if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS_CONST) {
             console.log('Attempting to recover from partner session error...');
             attemptReconnection();
           } else {
@@ -112,9 +178,143 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       socket.off('partner-temporarily-disconnected', handlePartnerTemporarilyDisconnected);
       socket.off('partner-reconnected', handlePartnerReconnected);
       socket.off('session-timeout', handleSessionTimeout);
+      socket.off('session-restored', handleSessionRestored);
+      socket.off('session-restore-failed', handleSessionRestoreFailed);
       socket.off('error');
     };
   }, [socket]);
+
+  // Session state restoration for reconnections (Requirements 5.4, 5.5)
+  const [sessionState, setSessionState] = useState<{
+    partnerId?: string;
+    roomId?: string;
+    connectionEstablished?: boolean;
+    mediaSettings?: {
+      audioMuted: boolean;
+      videoDisabled: boolean;
+    };
+    lastConnectionTime?: number;
+  }>({});
+
+  // Save session state periodically for restoration (Requirements 5.5)
+  useEffect(() => {
+    if (connectionState === 'connected' && partnerId && roomId) {
+      const currentSessionState = {
+        partnerId,
+        roomId,
+        connectionEstablished: isConnectionEstablished,
+        mediaSettings: {
+          audioMuted: isAudioMuted,
+          videoDisabled: isVideoDisabled
+        },
+        lastConnectionTime: Date.now()
+      };
+      
+      setSessionState(currentSessionState);
+      
+      // Store in sessionStorage for browser refresh recovery
+      try {
+        sessionStorage.setItem('videoChat_sessionState', JSON.stringify(currentSessionState));
+      } catch (error) {
+        console.warn('Failed to save session state to storage:', error);
+      }
+    }
+  }, [connectionState, partnerId, roomId, isConnectionEstablished, isAudioMuted, isVideoDisabled]);
+
+  // Attempt session restoration on component mount (Requirements 5.4, 5.5)
+  useEffect(() => {
+    if (isSessionRestored) {
+      console.log('Session restoration requested - checking for previous state');
+      
+      // Try to restore from sessionStorage first
+      try {
+        const storedState = sessionStorage.getItem('videoChat_sessionState');
+        if (storedState) {
+          const parsedState = JSON.parse(storedState);
+          
+          // Check if stored state is recent (within last 10 minutes)
+          const stateAge = Date.now() - (parsedState.lastConnectionTime || 0);
+          if (stateAge < 10 * 60 * 1000) { // 10 minutes
+            console.log('Found recent session state, attempting restoration');
+            setSessionState(parsedState);
+            
+            // Restore media settings if available
+            if (parsedState.mediaSettings) {
+              setIsAudioMuted(parsedState.mediaSettings.audioMuted);
+              setIsVideoDisabled(parsedState.mediaSettings.videoDisabled);
+            }
+            
+            // Request session restoration from server
+            socket.emit('request-session-restore');
+            return;
+          } else {
+            console.log('Stored session state is too old, clearing');
+            sessionStorage.removeItem('videoChat_sessionState');
+          }
+        }
+      } catch (error) {
+        console.warn('Failed to restore session state from storage:', error);
+      }
+      
+      // Fallback to server-side session restoration
+      socket.emit('request-session-restore');
+    }
+  }, [isSessionRestored, socket]);
+
+  // Enhanced session restoration handler
+  const handleSessionRestored = useCallback((data: { partnerId: string; roomId: string; wasReconnected: boolean }) => {
+    console.log('Session restored successfully:', data);
+    
+    // Update connection state to show restoration in progress
+    setConnectionState('connecting');
+    onError('Session restored! Reconnecting to your partner...');
+    
+    // Apply restored session state
+    if (sessionState.mediaSettings && localStreamRef.current) {
+      // Restore audio/video settings
+      const audioTrack = localStreamRef.current.getAudioTracks()[0];
+      const videoTrack = localStreamRef.current.getVideoTracks()[0];
+      
+      if (audioTrack) {
+        audioTrack.enabled = !sessionState.mediaSettings.audioMuted;
+        setIsAudioMuted(sessionState.mediaSettings.audioMuted);
+      }
+      
+      if (videoTrack) {
+        videoTrack.enabled = !sessionState.mediaSettings.videoDisabled;
+        setIsVideoDisabled(sessionState.mediaSettings.videoDisabled);
+      }
+      
+      console.log('Media settings restored:', sessionState.mediaSettings);
+    }
+    
+    // Clear restoration message after successful reconnection
+    setTimeout(() => {
+      if (connectionState === 'connected') {
+        onError('');
+      }
+    }, 3000);
+    
+  }, [sessionState, onError, connectionState]);
+
+  const handleSessionRestoreFailed = useCallback((data: { reason: string }) => {
+    console.log('Session restoration failed:', data.reason);
+    onError(`Session restoration failed: ${data.reason}. Starting new session...`);
+    
+    // Clear stored session state since restoration failed
+    try {
+      sessionStorage.removeItem('videoChat_sessionState');
+    } catch (error) {
+      console.warn('Failed to clear session state:', error);
+    }
+    
+    setSessionState({});
+    
+    // Clear error message after a delay
+    setTimeout(() => {
+      onError('');
+    }, 3000);
+  }, [onError]);
 
   // Network quality monitoring
   useEffect(() => {
@@ -189,13 +389,65 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       console.error('Failed to adapt video quality:', error);
     }
   };
+  // Network status monitoring for interruption recovery (Requirements 5.1, 5.3)
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [networkRecoveryInProgress, setNetworkRecoveryInProgress] = useState(false);
+
+  // Enhanced heartbeat and network monitoring
   useEffect(() => {
     if (!socket) return;
+
+    // Network status change handlers for interruption recovery (Requirements 5.1, 5.3)
+    const handleOnline = () => {
+      console.log('Network connection restored');
+      setIsOnline(true);
+      
+      if (connectionState === 'connected' && peerConnectionRef.current) {
+        // Network came back online - check if WebRTC connection needs recovery
+        const rtcState = peerConnectionRef.current.connectionState;
+        const iceState = peerConnectionRef.current.iceConnectionState;
+        
+        if (rtcState === 'disconnected' || rtcState === 'failed' || 
+            iceState === 'disconnected' || iceState === 'failed') {
+          console.log('Network recovered but WebRTC connection needs repair');
+          setNetworkRecoveryInProgress(true);
+          onError('Network connection restored. Reconnecting to your partner...');
+          
+          // Attempt connection recovery after network restoration
+          setTimeout(() => {
+            if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS && !isReconnecting) {
+              attemptReconnection();
+            }
+            setNetworkRecoveryInProgress(false);
+          }, 2000); // Give network a moment to stabilize
+        }
+      }
+      
+      // Send heartbeat to notify server we're back online
+      if (socket.connected) {
+        socket.emit('heartbeat', {
+          networkRecovered: true,
+          connectionQuality: networkQuality,
+          isInActiveCall: connectionState === 'connected'
+        });
+      }
+    };
+
+    const handleOffline = () => {
+      console.log('Network connection lost');
+      setIsOnline(false);
+      onError('Network connection lost. Waiting for connection to restore...');
+    };
 
     // Send heartbeat every 30 seconds to detect browser close
     const heartbeatInterval = setInterval(() => {
       if (socket.connected) {
-        socket.emit('heartbeat');
+        socket.emit('heartbeat', {
+          isOnline: navigator.onLine,
+          connectionQuality: networkQuality,
+          isInActiveCall: connectionState === 'connected',
+          timestamp: Date.now()
+        });
       }
     }, 30000); // 30 seconds
 
@@ -206,19 +458,56 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       }
     };
 
-    // Handle page visibility changes (browser tab switching, minimizing)
+    // Enhanced page visibility changes handling for connection persistence (Requirements 5.2)
     const handleVisibilityChange = () => {
       if (socket.connected) {
-        socket.emit('heartbeat');
+        const isVisible = !document.hidden;
+        
+        // Send enhanced heartbeat with visibility status
+        socket.emit('heartbeat', {
+          isVisible,
+          connectionQuality: networkQuality,
+          isInActiveCall: connectionState === 'connected'
+        });
+        
+        // If tab becomes visible after being hidden, check connection health
+        if (isVisible && connectionState === 'connected' && peerConnectionRef.current) {
+          console.log('Tab became visible - checking connection health');
+          
+          // Check if WebRTC connection is still healthy
+          const rtcConnectionState = peerConnectionRef.current.connectionState;
+          const iceConnectionState = peerConnectionRef.current.iceConnectionState;
+          
+          if (rtcConnectionState === 'disconnected' || iceConnectionState === 'disconnected') {
+            console.log('Connection degraded while tab was hidden - attempting recovery');
+            // Don't immediately reconnect, let the grace period handle it
+            setPartnerTemporarilyDisconnected(true);
+            onError('Connection may have been affected by tab switching. Monitoring...');
+            
+            // Clear the message after a few seconds if connection recovers
+            setTimeout(() => {
+              if (peerConnectionRef.current && 
+                  (peerConnectionRef.current.connectionState === 'connected' || 
+                   peerConnectionRef.current.iceConnectionState === 'connected')) {
+                setPartnerTemporarilyDisconnected(false);
+                onError('');
+              }
+            }, 5000);
+          }
+        }
       }
     };
 
     window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       clearInterval(heartbeatInterval);
       window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [socket]);
@@ -357,14 +646,14 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         }, 15000); // Increased fallback timeout
       }
 
-      // Set connection timeout with more reasonable duration
+      // Set initial connection timeout only for setup phase
       const timeout = setTimeout(() => {
-        if (connectionState !== 'connected') {
-          console.log('Connection timeout reached');
-          handleConnectionTimeout();
+        if (!isConnectionEstablished && connectionState !== 'connected') {
+          console.log('Initial connection timeout reached');
+          handleInitialConnectionTimeout();
         }
-      }, CONNECTION_TIMEOUT_MS);
-      setConnectionTimeout(timeout);
+      }, INITIAL_CONNECTION_TIMEOUT_CONST);
+      setInitialConnectionTimeout(timeout);
       
     } catch (error) {
       console.error('Failed to initialize video chat:', error);
@@ -404,7 +693,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         iceGatheringTimeout = setTimeout(() => {
           console.log(`ICE gathering timeout - proceeding with ${iceCandidateCount} candidates`);
           // Don't fail the connection, just proceed with what we have
-        }, ICE_GATHERING_TIMEOUT_MS);
+        }, ICE_GATHERING_TIMEOUT_CONST);
       } else if (peerConnection.iceGatheringState === 'complete') {
         if (iceGatheringTimeout) {
           clearTimeout(iceGatheringTimeout);
@@ -429,41 +718,66 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       switch (state) {
         case 'connecting':
           console.log('WebRTC connection is being established...');
+          // Clear any existing grace timers since we're actively connecting
+          clearGraceTimers();
           break;
         case 'connected':
           console.log('WebRTC connection established successfully');
           setConnectionState('connected');
+          setIsConnectionEstablished(true); // Mark connection as established
           setReconnectAttempts(0);
           setIsReconnecting(false);
-          // Clear connection timeout on successful connection
-          if (connectionTimeout) {
-            clearTimeout(connectionTimeout);
-            setConnectionTimeout(null);
+          // Clear all timers on successful connection - no more timeouts for established connections
+          clearAllTimeoutTimers();
+          clearGraceTimers();
+          if (initialConnectionTimeout) {
+            clearTimeout(initialConnectionTimeout);
+            setInitialConnectionTimeout(null);
           }
           break;
         case 'disconnected':
-          console.log('WebRTC connection disconnected');
+          console.log('WebRTC connection disconnected - implementing grace period');
           setConnectionState('disconnected');
-          handleConnectionLoss();
+          
+          // Implement grace period for temporary disconnections (Requirements 3.1, 3.5)
+          if (!disconnectionGraceTimer && !isReconnecting) {
+            console.log(`Starting ${DISCONNECTION_GRACE_PERIOD_CONST}ms grace period for disconnection`);
+            const graceTimer = setTimeout(() => {
+              if (peerConnectionRef.current && peerConnectionRef.current.connectionState === 'disconnected') {
+                console.log('Grace period expired, handling connection loss');
+                handleConnectionLoss();
+              }
+              setDisconnectionGraceTimer(null);
+            }, DISCONNECTION_GRACE_PERIOD_CONST);
+            setDisconnectionGraceTimer(graceTimer);
+          }
           break;
         case 'failed':
-          console.log('WebRTC connection failed');
+          console.log('WebRTC connection failed - implementing grace period before retry');
           setConnectionState('failed');
-          // Don't immediately fail - try to recover
-          setTimeout(() => {
-            if (peerConnectionRef.current && peerConnectionRef.current.connectionState === 'failed') {
-              handleConnectionFailure();
-            }
-          }, 3000); // Give it 3 seconds to potentially recover
+          
+          // Implement grace period before attempting recovery (Requirements 3.1, 3.2)
+          if (!iceFailureGraceTimer && !isReconnecting) {
+            console.log(`Starting ${ICE_FAILURE_GRACE_PERIOD_CONST}ms grace period for connection failure`);
+            const graceTimer = setTimeout(() => {
+              if (peerConnectionRef.current && peerConnectionRef.current.connectionState === 'failed') {
+                console.log('Grace period expired, attempting connection recovery');
+                handleConnectionFailure();
+              }
+              setIceFailureGraceTimer(null);
+            }, ICE_FAILURE_GRACE_PERIOD_CONST);
+            setIceFailureGraceTimer(graceTimer);
+          }
           break;
         case 'closed':
           console.log('WebRTC connection closed');
           setConnectionState('disconnected');
+          clearGraceTimers();
           break;
       }
     };
 
-    // Handle ICE connection state changes with detailed logging
+    // Handle ICE connection state changes with detailed logging and improved retry logic
     peerConnection.oniceconnectionstatechange = () => {
       const iceState = peerConnection.iceConnectionState;
       console.log('ICE connection state:', iceState);
@@ -471,34 +785,53 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       switch (iceState) {
         case 'checking':
           console.log('ICE connectivity checks are in progress...');
+          // Clear grace timers since we're actively checking connectivity
+          clearGraceTimers();
           break;
         case 'connected':
           console.log('ICE connectivity checks succeeded');
+          clearGraceTimers();
           break;
         case 'completed':
           console.log('ICE connectivity checks completed successfully');
+          clearGraceTimers();
           break;
         case 'failed':
-          console.log('ICE connectivity checks failed');
-          // Give it a moment before failing - sometimes it recovers
-          setTimeout(() => {
-            if (peerConnection.iceConnectionState === 'failed') {
-              handleConnectionFailure();
-            }
-          }, 2000);
+          console.log('ICE connectivity checks failed - implementing retry logic');
+          
+          // Implement grace period and retry logic for ICE failures (Requirements 3.2, 3.5)
+          if (!iceFailureGraceTimer && !isReconnecting) {
+            console.log(`Starting ${ICE_FAILURE_GRACE_PERIOD_CONST}ms grace period for ICE failure`);
+            const graceTimer = setTimeout(() => {
+              if (peerConnection.iceConnectionState === 'failed') {
+                console.log('ICE failure grace period expired, attempting ICE restart');
+                handleICEFailure();
+              }
+              setIceFailureGraceTimer(null);
+            }, ICE_FAILURE_GRACE_PERIOD_CONST);
+            setIceFailureGraceTimer(graceTimer);
+          }
           break;
         case 'disconnected':
-          console.log('ICE connection disconnected');
-          // Don't immediately fail - might reconnect
-          setTimeout(() => {
-            if (peerConnection.iceConnectionState === 'disconnected') {
-              handleConnectionLoss();
-            }
-          }, 3000);
+          console.log('ICE connection disconnected - implementing grace period');
+          
+          // Implement grace period for ICE disconnections (Requirements 3.1, 3.5)
+          if (!disconnectionGraceTimer && !isReconnecting) {
+            console.log(`Starting ${DISCONNECTION_GRACE_PERIOD_CONST}ms grace period for ICE disconnection`);
+            const graceTimer = setTimeout(() => {
+              if (peerConnection.iceConnectionState === 'disconnected') {
+                console.log('ICE disconnection grace period expired, handling connection loss');
+                handleConnectionLoss();
+              }
+              setDisconnectionGraceTimer(null);
+            }, DISCONNECTION_GRACE_PERIOD_CONST);
+            setDisconnectionGraceTimer(graceTimer);
+          }
           break;
         case 'closed':
           console.log('ICE connection closed');
           setConnectionState('disconnected');
+          clearGraceTimers();
           break;
       }
     };
@@ -569,13 +902,14 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       console.error('❌ Error creating offer:', error);
       onError('Failed to create connection offer. Retrying...');
       
-      // Retry after a short delay
+      // Retry after exponential backoff delay (Requirements 4.2)
+      const retryDelay = calculateExponentialBackoffDelay(1, 2000, 8000); // Start with 2s, max 8s for offer retries
       setTimeout(() => {
         if (peerConnectionRef.current && peerConnectionRef.current.signalingState === 'stable') {
           console.log('🔄 Retrying offer creation...');
           createOffer();
         }
-      }, 2000);
+      }, retryDelay);
     }
   };
 
@@ -641,13 +975,14 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       console.error('❌ Error handling offer:', error);
       onError('Failed to handle connection offer. Retrying...');
       
-      // Retry after a short delay
+      // Retry after exponential backoff delay (Requirements 4.2)
+      const retryDelay = calculateExponentialBackoffDelay(1, 2000, 8000); // Start with 2s, max 8s for offer handling retries
       setTimeout(() => {
         if (peerConnectionRef.current && offer && !peerConnectionRef.current.remoteDescription) {
           console.log('🔄 Retrying offer handling...');
           handleReceiveOffer(offer);
         }
-      }, 2000);
+      }, retryDelay);
     }
   }, [socket, onError, partnerId]);
 
@@ -678,13 +1013,14 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       console.error('❌ Error handling answer:', error);
       onError('Failed to handle connection answer. Retrying...');
       
-      // Retry after a short delay
+      // Retry after exponential backoff delay (Requirements 4.2)
+      const retryDelay = calculateExponentialBackoffDelay(1, 2000, 8000); // Start with 2s, max 8s for answer handling retries
       setTimeout(() => {
         if (peerConnectionRef.current && answer && !peerConnectionRef.current.remoteDescription) {
           console.log('🔄 Retrying answer handling...');
           handleReceiveAnswer(answer);
         }
-      }, 2000);
+      }, retryDelay);
     }
   }, [onError]);
 
@@ -751,16 +1087,27 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       socket.emit('browser-closing');
     }
 
+    // Clear session state from storage when explicitly ending call (Requirements 5.5)
+    try {
+      sessionStorage.removeItem('videoChat_sessionState');
+    } catch (error) {
+      console.warn('Failed to clear session state:', error);
+    }
+
     // Stop quality monitoring
     if (qualityMonitorRef.current) {
       qualityMonitorRef.current.stop();
       qualityMonitorRef.current = null;
     }
 
-    // Clear connection timeout
-    if (connectionTimeout) {
-      clearTimeout(connectionTimeout);
-      setConnectionTimeout(null);
+    // Clear all timeout timers to prevent memory leaks and conflicts (Requirements 3.5)
+    clearAllTimeoutTimers();
+    clearGraceTimers();
+
+    // Clear initial connection timeout
+    if (initialConnectionTimeout) {
+      clearTimeout(initialConnectionTimeout);
+      setInitialConnectionTimeout(null);
     }
 
     // Stop local stream
@@ -786,8 +1133,11 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     }
 
     setConnectionState('disconnected');
+    setIsConnectionEstablished(false);
     setIsReconnecting(false);
     setReconnectAttempts(0);
+    setSessionState({}); // Clear session state
+    setNetworkRecoveryInProgress(false);
   };
 
   const toggleAudio = () => {
@@ -872,66 +1222,165 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     }
   };
 
-  const handleConnectionTimeout = () => {
-    console.log('Connection timeout - attempting to reconnect');
+  const handleInitialConnectionTimeout = () => {
+    console.log('Initial connection timeout - implementing progressive extension');
     
-    // Don't immediately fail if we're still in connecting state
-    if (connectionState === 'connecting' && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+    // Only extend timeout during initial connection setup, not for established connections
+    if (!isConnectionEstablished && connectionState === 'connecting' && reconnectAttempts < MAX_RECONNECT_ATTEMPTS_CONST) {
       console.log('Connection still in progress, extending timeout...');
-      // Extend timeout by another 15 seconds
+      // Implement exponential backoff for timeout extensions (Requirements 4.2)
+      const extensionTime = calculateExponentialBackoffDelay(reconnectAttempts + 1, CONNECTION_SETUP_EXTENSION_CONST, MAX_RECONNECT_DELAY_CONST);
+      
+      console.log(`Extending timeout by ${extensionTime}ms (attempt ${reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS_CONST})`);
+      
       const extendedTimeout = setTimeout(() => {
-        if (peerConnectionRef.current && peerConnectionRef.current.connectionState !== 'connected') {
+        if (!isConnectionEstablished && peerConnectionRef.current && peerConnectionRef.current.connectionState !== 'connected') {
           console.log('Extended connection timeout reached');
-          attemptReconnection();
+          handleInitialConnectionTimeout();
         }
-      }, 15000);
-      setConnectionTimeout(extendedTimeout);
-    } else if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+      }, extensionTime);
+      setInitialConnectionTimeout(extendedTimeout);
+      
+      // Increment reconnect attempts for progressive extension
+      setReconnectAttempts(prev => prev + 1);
+    } else if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS_CONST) {
       attemptReconnection();
     } else {
-      console.log('Max reconnection attempts reached, showing error');
-      onError('Connection timeout. Unable to establish video connection after multiple attempts.');
+      console.log('Max reconnection attempts reached during initial setup, showing error');
+      // Improved error handling for maximum retry scenarios (Requirements 4.5)
+      const errorMessage = `Connection timeout after ${MAX_RECONNECT_ATTEMPTS_CONST} attempts. This may be due to network issues or firewall restrictions. Please check your internet connection and try again.`;
+      onError(errorMessage);
       setConnectionState('failed');
+      
+      // Provide recovery options to user
+      setTimeout(() => {
+        onError(`${errorMessage} You can try refreshing the page or checking your network settings.`);
+      }, 3000);
     }
   };
 
   const handleConnectionLoss = () => {
     console.log('Connection lost - checking for reconnection');
-    if (connectionState === 'connected' && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+    // Clear grace timers since we're now handling the connection loss
+    clearGraceTimers();
+    
+    if (connectionState === 'connected' && reconnectAttempts < MAX_RECONNECT_ATTEMPTS_CONST && !isReconnecting) {
       attemptReconnection();
     }
   };
 
   const handleConnectionFailure = () => {
     console.log('Connection failed - attempting recovery');
+    // Clear grace timers since we're now handling the failure
+    clearGraceTimers();
     
-    // Only attempt reconnection if we haven't exceeded max attempts
-    if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-      console.log(`Connection failed, attempting reconnection ${reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS}`);
+    // Only attempt reconnection if we haven't exceeded max attempts and not already reconnecting
+    if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS_CONST && !isReconnecting) {
+      console.log(`Connection failed, attempting reconnection ${reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS_CONST}`);
       attemptReconnection();
-    } else {
+    } else if (!isReconnecting) {
       console.log('Max reconnection attempts reached after connection failure');
       setConnectionState('failed');
-      onError('Connection failed after multiple attempts. Please check your network connection and try again.');
+      
+      // Enhanced error handling for maximum retry scenarios (Requirements 4.5)
+      const errorMessage = `Connection failed after ${MAX_RECONNECT_ATTEMPTS_CONST} reconnection attempts. This could be due to:
+      • Network connectivity issues
+      • Firewall or NAT restrictions
+      • Server overload
+      
+      Please check your internet connection and try again. If the problem persists, try refreshing the page.`;
+      
+      onError(errorMessage);
+      
+      // Provide additional recovery guidance after a delay
+      setTimeout(() => {
+        onError('You can also try connecting from a different network or contact support if issues continue.');
+      }, 5000);
+    }
+  };
+
+  const handleICEFailure = async () => {
+    console.log('ICE connection failed - attempting ICE restart');
+    
+    if (!peerConnectionRef.current || isReconnecting) {
+      console.log('Cannot restart ICE: peer connection unavailable or already reconnecting');
+      return;
+    }
+
+    // Clear grace timers since we're handling the ICE failure
+    clearGraceTimers();
+
+    try {
+      // Attempt ICE restart (Requirements 3.2)
+      console.log('Attempting ICE restart...');
+      
+      if (isInitiator && peerConnectionRef.current.signalingState === 'stable') {
+        // Create new offer with ICE restart
+        const offer = await peerConnectionRef.current.createOffer({ iceRestart: true });
+        await peerConnectionRef.current.setLocalDescription(offer);
+        socket.emit('offer', offer);
+        console.log('ICE restart offer sent');
+      } else {
+        console.log('ICE restart not applicable for non-initiator or unstable signaling state');
+        // Fall back to full reconnection with exponential backoff
+        if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS_CONST) {
+          attemptReconnection();
+        } else {
+          // Enhanced error handling for ICE failure scenarios (Requirements 4.5)
+          const errorMessage = `ICE connection failed after ${MAX_RECONNECT_ATTEMPTS_CONST} attempts. This typically indicates:
+          • NAT/Firewall restrictions blocking peer-to-peer connection
+          • Network configuration issues
+          • STUN/TURN server connectivity problems
+          
+          Please try refreshing the page or connecting from a different network.`;
+          onError(errorMessage);
+          setConnectionState('failed');
+        }
+      }
+    } catch (error) {
+      console.error('ICE restart failed:', error);
+      // Fall back to full reconnection with proper error handling
+      if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS_CONST) {
+        console.log('ICE restart failed, falling back to full reconnection');
+        attemptReconnection();
+      } else {
+        // Enhanced error handling for maximum retry scenarios (Requirements 4.5)
+        const errorMessage = `ICE restart and reconnection failed after ${MAX_RECONNECT_ATTEMPTS_CONST} attempts.
+        
+        Error details: ${error instanceof Error ? error.message : 'Unknown error'}
+        
+        This may be due to network restrictions. Please try:
+        • Refreshing the page
+        • Connecting from a different network
+        • Disabling VPN if active
+        • Contacting your network administrator`;
+        
+        onError(errorMessage);
+        handleConnectionFailure();
+      }
     }
   };
 
   const attemptReconnection = async () => {
-    if (isReconnecting) return;
+    if (isReconnecting) {
+      console.log('Reconnection already in progress, skipping duplicate attempt');
+      return;
+    }
 
     setIsReconnecting(true);
     const currentAttempt = reconnectAttempts + 1;
     setReconnectAttempts(currentAttempt);
     
+    // Clear any existing grace timers and timeout timers to prevent conflicts (Requirements 3.5)
+    clearGraceTimers();
+    clearAllTimeoutTimers();
+    
     console.log(`Attempting reconnection ${currentAttempt}/${MAX_RECONNECT_ATTEMPTS}`);
 
-    // Calculate exponential backoff delay
-    const delay = Math.min(
-      INITIAL_RECONNECT_DELAY_MS * Math.pow(2, currentAttempt - 1),
-      MAX_RECONNECT_DELAY_MS
-    );
+    // Implement proper exponential backoff with reasonable maximum delays (Requirements 4.2)
+    const delay = calculateExponentialBackoffDelay(currentAttempt);
     
-    console.log(`Waiting ${delay}ms before reconnection attempt`);
+    console.log(`Exponential backoff: attempt=${currentAttempt}, delay=${delay}ms (max=${MAX_RECONNECT_DELAY_CONST}ms)`);
 
     // Wait before attempting reconnection
     await new Promise(resolve => setTimeout(resolve, delay));
@@ -979,27 +1428,55 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         await createOffer();
       }
 
-      // Set new connection timeout with longer duration for reconnection attempts
-      const timeoutDuration = CONNECTION_TIMEOUT_MS + (currentAttempt * 5000); // Add 5s per attempt
-      const timeout = setTimeout(() => {
-        if (connectionState !== 'connected') {
-          console.log(`Reconnection attempt ${currentAttempt} timed out`);
-          handleConnectionTimeout();
-        }
-      }, timeoutDuration);
-      setConnectionTimeout(timeout);
+      // Set timeout only for initial connection setup, not for established connection monitoring
+      // Prevent multiple timeout timers by checking if we already have active timers (Requirements 3.5)
+      if (!isConnectionEstablished && activeTimeoutTimers.size === 0) {
+        // Use exponential backoff for timeout duration as well
+        const baseTimeout = INITIAL_CONNECTION_TIMEOUT_CONST;
+        const extensionMultiplier = calculateExponentialBackoffDelay(currentAttempt, CONNECTION_SETUP_EXTENSION_CONST, MAX_RECONNECT_DELAY_CONST);
+        const timeoutDuration = Math.min(baseTimeout + extensionMultiplier, baseTimeout + MAX_RECONNECT_DELAY_CONST);
+        
+        console.log(`Setting reconnection timeout: ${timeoutDuration}ms for attempt ${currentAttempt}`);
+        
+        const timeout = setTimeout(() => {
+          if (!isConnectionEstablished && connectionState !== 'connected') {
+            console.log(`Reconnection attempt ${currentAttempt} timed out`);
+            removeTimeoutTimer(timeout);
+            handleInitialConnectionTimeout();
+          }
+        }, timeoutDuration);
+        setInitialConnectionTimeout(timeout);
+        addTimeoutTimer(timeout);
+      } else if (isConnectionEstablished) {
+        console.log('Connection was previously established - no timeout for reconnection attempts');
+      } else {
+        console.log('Timeout timer already active, skipping duplicate timer creation');
+      }
 
     } catch (error) {
       console.error(`Reconnection attempt ${currentAttempt} failed:`, error);
       setIsReconnecting(false);
       
-      if (currentAttempt >= MAX_RECONNECT_ATTEMPTS) {
-        onError('Unable to reconnect after multiple attempts. Please refresh the page and try again.');
+      if (currentAttempt >= MAX_RECONNECT_ATTEMPTS_CONST) {
+        // Enhanced error handling for maximum retry scenarios (Requirements 4.5)
+        const detailedError = `Unable to reconnect after ${MAX_RECONNECT_ATTEMPTS_CONST} attempts. 
+        
+        Last error: ${error instanceof Error ? error.message : 'Unknown error'}
+        
+        Possible solutions:
+        • Refresh the page and try again
+        • Check your internet connection
+        • Try connecting from a different network
+        • Disable VPN if using one
+        • Contact support if the problem persists`;
+        
+        onError(detailedError);
         setConnectionState('failed');
       } else {
-        // Schedule next attempt
-        console.log(`Scheduling reconnection attempt ${currentAttempt + 1}`);
-        setTimeout(() => attemptReconnection(), 1000);
+        // Schedule next attempt with exponential backoff
+        const nextDelay = calculateExponentialBackoffDelay(currentAttempt + 1);
+        console.log(`Scheduling next reconnection attempt in ${nextDelay}ms`);
+        setTimeout(() => attemptReconnection(), nextDelay);
       }
     }
   };
@@ -1007,6 +1484,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
   const retryConnection = () => {
     setReconnectAttempts(0);
     setIsReconnecting(false);
+    setIsConnectionEstablished(false); // Reset connection establishment flag
     setMediaError(null);
     initializeVideoChat();
   };
@@ -1016,8 +1494,16 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       return 'Partner temporarily disconnected - waiting for reconnection...';
     }
     
+    if (networkRecoveryInProgress) {
+      return 'Network recovered - reconnecting to partner...';
+    }
+    
+    if (!isOnline) {
+      return 'Network connection lost - waiting for network...';
+    }
+    
     if (isReconnecting) {
-      return `Reconnecting... (Attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`;
+      return `Reconnecting... (Attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS_CONST})`;
     }
     
     if (isSessionRestored && connectionState === 'initializing') {
@@ -1045,7 +1531,8 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     if (connectionState === 'connected') {
       const qualityText = networkQuality === 'good' ? '🟢' : networkQuality === 'fair' ? '🟡' : '🔴';
       const adaptiveText = adaptiveStreamingEnabled ? ' (Adaptive)' : '';
-      return `${baseStatus} ${qualityText}${adaptiveText}`;
+      const offlineText = !isOnline ? ' (Offline)' : '';
+      return `${baseStatus} ${qualityText}${adaptiveText}${offlineText}`;
     }
     
     return baseStatus;
@@ -1054,6 +1541,14 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
   const getConnectionStatusColor = () => {
     if (partnerTemporarilyDisconnected) {
       return 'text-yellow-600';
+    }
+    
+    if (networkRecoveryInProgress) {
+      return 'text-blue-600';
+    }
+    
+    if (!isOnline) {
+      return 'text-red-600';
     }
     
     if (isReconnecting) {
@@ -1168,7 +1663,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
                       <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-2"></div>
                       <p className="text-sm">
                         {isReconnecting 
-                          ? `Reconnecting... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`
+                          ? `Reconnecting... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS_CONST})`
                           : 'Waiting for partner...'
                         }
                       </p>
