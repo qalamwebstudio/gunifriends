@@ -1,11 +1,30 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
+import { gsap } from 'gsap';
+import { ScrollTrigger } from 'gsap/ScrollTrigger';
+
+// Register GSAP plugins
+if (typeof window !== 'undefined') {
+  gsap.registerPlugin(ScrollTrigger);
+}
 
 export default function Home() {
   const [activeSection, setActiveSection] = useState('home');
   const [isScrolled, setIsScrolled] = useState(false);
+
+  // Animation refs
+  const navRef = useRef(null);
+  const heroContentRef = useRef(null);
+  const heroOverlayRef = useRef(null);
+  const heroButtonsRef = useRef(null);
+  const badgesRef = useRef(null);
+  const howItWorksRef = useRef(null);
+  const featuresRef = useRef(null);
+  const aboutRef = useRef(null);
+  const contactRef = useRef(null);
+  const finalCtaRef = useRef(null);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -15,6 +34,182 @@ export default function Home() {
 
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  useEffect(() => {
+    // Initial animations on page load
+    const tl = gsap.timeline();
+
+    // Navbar animation from top
+    tl.fromTo(navRef.current,
+      { y: -100, opacity: 0 },
+      { y: 0, opacity: 1, duration: 1, ease: "power3.out" }
+    )
+
+      // Hero overlay animation from left
+      .fromTo(heroOverlayRef.current,
+        { x: '-100%', opacity: 0 },
+        { x: 0, opacity: 1, duration: 1.2, ease: "power3.out" }, "-=0.5"
+      )
+
+      // Hero content animation from left
+      .fromTo(heroContentRef.current,
+        { x: -100, opacity: 0 },
+        { x: 0, opacity: 1, duration: 1, ease: "power3.out" }, "-=0.8"
+      )
+
+      // Hero buttons animation
+      .fromTo(heroButtonsRef.current,
+        { y: 50, opacity: 0 },
+        { y: 0, opacity: 1, duration: 0.8, ease: "power3.out" }, "-=0.3"
+      )
+
+      // Safety badges animation
+      .fromTo(badgesRef.current,
+        { y: 30, opacity: 0 },
+        { y: 0, opacity: 1, duration: 0.6, ease: "power3.out" }, "-=0.2"
+      );
+
+    // Scroll-triggered animations
+
+    // How It Works - Cards appear one by one
+    gsap.fromTo(".step-card",
+      { y: 100, opacity: 0, scale: 0.8 },
+      {
+        y: 0,
+        opacity: 1,
+        scale: 1,
+        duration: 0.8,
+        ease: "power3.out",
+        stagger: 0.3,
+        scrollTrigger: {
+          trigger: howItWorksRef.current,
+          start: "top 80%",
+          end: "bottom 20%",
+          toggleActions: "play none none reverse"
+        }
+      }
+    );
+
+    // Features - First row then second row
+    gsap.fromTo(".feature-card-row-1",
+      { y: 80, opacity: 0, rotateX: 45 },
+      {
+        y: 0,
+        opacity: 1,
+        rotateX: 0,
+        duration: 1,
+        ease: "power3.out",
+        stagger: 0.2,
+        scrollTrigger: {
+          trigger: featuresRef.current,
+          start: "top 70%",
+          toggleActions: "play none none reverse"
+        }
+      }
+    );
+
+    gsap.fromTo(".feature-card-row-2",
+      { y: 80, opacity: 0, rotateX: 45 },
+      {
+        y: 0,
+        opacity: 1,
+        rotateX: 0,
+        duration: 1,
+        ease: "power3.out",
+        stagger: 0.2,
+        scrollTrigger: {
+          trigger: featuresRef.current,
+          start: "top 50%",
+          toggleActions: "play none none reverse"
+        }
+      }
+    );
+
+    // About section - Text from bottom, cards blur effect from right
+    gsap.fromTo(".about-text",
+      { y: 100, opacity: 0 },
+      {
+        y: 0,
+        opacity: 1,
+        duration: 1,
+        ease: "power3.out",
+        scrollTrigger: {
+          trigger: aboutRef.current,
+          start: "top 70%",
+          toggleActions: "play none none reverse"
+        }
+      }
+    );
+
+    gsap.fromTo(".about-card",
+      { x: 100, opacity: 0, filter: "blur(10px)" },
+      {
+        x: 0,
+        opacity: 1,
+        filter: "blur(0px)",
+        duration: 1,
+        ease: "power3.out",
+        stagger: 0.2,
+        scrollTrigger: {
+          trigger: aboutRef.current,
+          start: "top 60%",
+          toggleActions: "play none none reverse"
+        }
+      }
+    );
+
+    // Contact section - Form and overlay from right
+    gsap.fromTo(".contact-overlay",
+      { x: '100%', opacity: 0 },
+      {
+        x: 0,
+        opacity: 1,
+        duration: 1.2,
+        ease: "power3.out",
+        scrollTrigger: {
+          trigger: contactRef.current,
+          start: "top 70%",
+          toggleActions: "play none none reverse"
+        }
+      }
+    );
+
+    gsap.fromTo(".contact-form",
+      { x: 80, opacity: 0 },
+      {
+        x: 0,
+        opacity: 1,
+        duration: 1,
+        ease: "power3.out",
+        scrollTrigger: {
+          trigger: contactRef.current,
+          start: "top 60%",
+          toggleActions: "play none none reverse"
+        }
+      }
+    );
+
+    // Final CTA card
+    gsap.fromTo(".final-cta-card",
+      { y: 100, opacity: 0, scale: 0.9 },
+      {
+        y: 0,
+        opacity: 1,
+        scale: 1,
+        duration: 1,
+        ease: "power3.out",
+        scrollTrigger: {
+          trigger: finalCtaRef.current,
+          start: "top 80%",
+          toggleActions: "play none none reverse"
+        }
+      }
+    );
+
+    return () => {
+      ScrollTrigger.getAll().forEach(trigger => trigger.kill());
+    };
   }, []);
 
   return (
@@ -29,7 +224,7 @@ export default function Home() {
       }}
     >
       {/* Top Navigation Bar */}
-      <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${isScrolled ? 'bg-white/95 backdrop-blur-sm shadow-lg' : ''}`}>
+      <nav ref={navRef} className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${isScrolled ? 'bg-white/95 backdrop-blur-sm shadow-lg' : ''}`}>
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             {/* Logo Section - Left Side */}
@@ -37,7 +232,7 @@ export default function Home() {
               <img
                 src={isScrolled ? "/logoherored.png" : "/logohero.png"}
                 alt="Logo"
-                className="h-12 w-auto transition-all duration-300"
+                className="h-16 w-auto transition-all duration-300"
               />
             </div>
 
@@ -124,26 +319,26 @@ export default function Home() {
 
           {/* Diagonal Red Overlay */}
           <div className="absolute inset-0">
-            <div className="absolute inset-0 bg-[#D53840]/75 transform -skew-x-12 origin-top-left w-3/5 h-full"></div>
+            <div ref={heroOverlayRef} className="absolute inset-0 bg-[#D53840]/75 transform -skew-x-12 origin-top-left w-3/5 h-full"></div>
           </div>
 
           {/* Hero Content */}
           <div className="relative z-10 h-full flex items-center">
-            <div className="max-w-2xl ml-16 text-white animate-fadeInUp">
+            <div ref={heroContentRef} className="max-w-2xl ml-16 text-white">
               <h1 className="text-6xl font-heading-bold leading-tight mb-6">
                 Meet Real Students.
                 <span className="block">Face to Face.</span>
               </h1>
 
               <p className="text-xl mb-4 opacity-90 leading-relaxed font-body-medium">
-                Random video chat between verified university students â€” no bots, no fake profiles.
+                A secure video chat platform where only verified university students connect —live, face to face, and without fake profiles.
               </p>
 
               <p className="text-lg mb-8 font-body-medium">
-                CampusCam â€” Verified Students. Real Connections.
+                Verified Students. Real Connections.
               </p>
 
-              <div className="flex flex-col sm:flex-row gap-4">
+              <div ref={heroButtonsRef} className="flex flex-col sm:flex-row gap-4">
                 <Link
                   href="/register"
                   className="group px-8 py-4 bg-[#000934] text-white rounded-2xl hover:bg-[#000934]/90 transition-all duration-300 font-semibold text-lg shadow-xl hover:shadow-2xl transform hover:-translate-y-1 flex items-center justify-center space-x-2"
@@ -161,13 +356,30 @@ export default function Home() {
                   Login with University Email
                 </Link>
               </div>
+
+              {/* Safety Badges */}
+              <div ref={badgesRef} className="flex flex-col sm:flex-row gap-3 mt-8 justify-start ml-0">
+                <div className="flex items-center space-x-2 bg-white px-4 py-2 rounded-full border border-white/30 backdrop-blur-sm mt-6 ">
+                  <svg className="w-4 h-4 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                  </svg>
+                  <span className="text-sm font-body text-[#000934]">University email verification required</span>
+                </div>
+
+                <div className="flex items-center space-x-2 bg-white px-4 py-2 rounded-full border border-white/30 backdrop-blur-sm mt-6 ">
+                  <svg className="w-4 h-4 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                  </svg>
+                  <span className="text-sm font-body text-[#000934]">Safe reporting & moderation</span>
+                </div>
+              </div>
             </div>
           </div>
 
         </section>
 
         {/* How It Works Section */}
-        <section className="py-16 bg-[#E6DDD4] relative">
+        <section ref={howItWorksRef} className="py-16 bg-[#E6DDD4] relative">
           {/* Solid background overlay to hide global background */}
           <div className="absolute inset-0 bg-[#E6DDD4]"></div>
           <div className="relative z-10">
@@ -186,7 +398,7 @@ export default function Home() {
                 <div className="grid grid-cols-3 gap-8 relative z-10">
 
                   {/* Step 1 */}
-                  <div className="group relative">
+                  <div className="step-card group relative">
                     <div className="bg-white/80 backdrop-blur-lg rounded-3xl p-8 shadow-xl border border-white/20 transition-all duration-300 transform hover:-translate-y-2 hover:shadow-2xl relative overflow-hidden">
                       {/* Red Overlay on Hover */}
                       <div className="absolute inset-0 bg-[#D53840]/90 opacity-0 group-hover:opacity-100 transition-all duration-300 rounded-3xl flex flex-col items-center justify-center text-white">
@@ -215,7 +427,7 @@ export default function Home() {
                   </div>
 
                   {/* Step 2 */}
-                  <div className="group relative">
+                  <div className="step-card group relative">
                     <div className="bg-white/80 backdrop-blur-lg rounded-3xl p-8 shadow-xl border border-white/20 transition-all duration-300 transform hover:-translate-y-2 hover:shadow-2xl relative overflow-hidden">
                       {/* Red Overlay on Hover */}
                       <div className="absolute inset-0 bg-[#D53840]/90 opacity-0 group-hover:opacity-100 transition-all duration-300 rounded-3xl flex flex-col items-center justify-center text-white">
@@ -244,7 +456,7 @@ export default function Home() {
                   </div>
 
                   {/* Step 3 */}
-                  <div className="group relative">
+                  <div className="step-card group relative">
                     <div className="bg-white/80 backdrop-blur-lg rounded-3xl p-8 shadow-xl border border-white/20 transition-all duration-300 transform hover:-translate-y-2 hover:shadow-2xl relative overflow-hidden">
                       {/* Red Overlay on Hover */}
                       <div className="absolute inset-0 bg-[#D53840]/90 opacity-0 group-hover:opacity-100 transition-all duration-300 rounded-3xl flex flex-col items-center justify-center text-white">
@@ -279,7 +491,7 @@ export default function Home() {
         </section>
 
         {/* Features Section */}
-        <section className="py-20 relative">
+        <section ref={featuresRef} className="py-20 relative">
           {/* Red overlay on the global background */}
           <div className="absolute inset-0 bg-[#D53840]/85"></div>
           <div className="relative z-10">
@@ -293,7 +505,7 @@ export default function Home() {
 
               <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
                 {/* Feature 1 */}
-                <div className="group bg-[#FDF6E3] backdrop-blur-lg rounded-3xl p-8 border border-white/20 transition-all duration-300 transform hover:-translate-y-2 relative overflow-hidden h-64 flex flex-col justify-between">
+                <div className="feature-card-row-1 group bg-[#FDF6E3] backdrop-blur-lg rounded-3xl p-8 border border-white/20 transition-all duration-300 transform hover:-translate-y-2 relative overflow-hidden h-64 flex flex-col justify-between">
                   {/* Red Overlay on Hover */}
                   <div className="absolute inset-0 bg-[#D53840]/90 opacity-0 group-hover:opacity-100 transition-all duration-300 rounded-3xl flex flex-col items-center justify-center text-white p-8">
                     <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center text-3xl font-bold mb-6">
@@ -323,7 +535,7 @@ export default function Home() {
                 </div>
 
                 {/* Feature 2 */}
-                <div className="group bg-[#FDF6E3] backdrop-blur-lg rounded-3xl p-8 border border-white/20 transition-all duration-300 transform hover:-translate-y-2 relative overflow-hidden h-64 flex flex-col justify-between">
+                <div className="feature-card-row-1 group bg-[#FDF6E3] backdrop-blur-lg rounded-3xl p-8 border border-white/20 transition-all duration-300 transform hover:-translate-y-2 relative overflow-hidden h-64 flex flex-col justify-between">
                   {/* Red Overlay on Hover */}
                   <div className="absolute inset-0 bg-[#D53840]/90 opacity-0 group-hover:opacity-100 transition-all duration-300 rounded-3xl flex flex-col items-center justify-center text-white p-8">
                     <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center text-3xl font-bold mb-6">
@@ -353,7 +565,7 @@ export default function Home() {
                 </div>
 
                 {/* Feature 3 */}
-                <div className="group bg-[#FDF6E3] backdrop-blur-lg rounded-3xl p-8 border border-white/20 transition-all duration-300 transform hover:-translate-y-2 relative overflow-hidden h-64 flex flex-col justify-between">
+                <div className="feature-card-row-1 group bg-[#FDF6E3] backdrop-blur-lg rounded-3xl p-8 border border-white/20 transition-all duration-300 transform hover:-translate-y-2 relative overflow-hidden h-64 flex flex-col justify-between">
                   {/* Red Overlay on Hover */}
                   <div className="absolute inset-0 bg-[#D53840]/90 opacity-0 group-hover:opacity-100 transition-all duration-300 rounded-3xl flex flex-col items-center justify-center text-white p-8">
                     <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center text-3xl font-bold mb-6">
@@ -383,7 +595,7 @@ export default function Home() {
                 </div>
 
                 {/* Feature 4 */}
-                <div className="group bg-[#FDF6E3] backdrop-blur-lg rounded-3xl p-8 border border-white/20 transition-all duration-300 transform hover:-translate-y-2 relative overflow-hidden h-64 flex flex-col justify-between">
+                <div className="feature-card-row-2 group bg-[#FDF6E3] backdrop-blur-lg rounded-3xl p-8 border border-white/20 transition-all duration-300 transform hover:-translate-y-2 relative overflow-hidden h-64 flex flex-col justify-between">
                   {/* Red Overlay on Hover */}
                   <div className="absolute inset-0 bg-[#D53840]/90 opacity-0 group-hover:opacity-100 transition-all duration-300 rounded-3xl flex flex-col items-center justify-center text-white p-8">
                     <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center text-3xl font-bold mb-6">
@@ -413,7 +625,7 @@ export default function Home() {
                 </div>
 
                 {/* Feature 5 */}
-                <div className="group bg-[#FDF6E3] backdrop-blur-lg rounded-3xl p-8 border border-white/20 transition-all duration-300 transform hover:-translate-y-2 relative overflow-hidden h-64 flex flex-col justify-between">
+                <div className="feature-card-row-2 group bg-[#FDF6E3] backdrop-blur-lg rounded-3xl p-8 border border-white/20 transition-all duration-300 transform hover:-translate-y-2 relative overflow-hidden h-64 flex flex-col justify-between">
 
                   {/* Red Overlay on Hover */}
                   <div className="absolute inset-0 bg-[#D53840]/90 opacity-0 group-hover:opacity-100 transition-all duration-300 rounded-3xl flex flex-col items-center justify-center text-white p-8">
@@ -459,7 +671,7 @@ export default function Home() {
                 </div>
 
                 {/* Feature 6 */}
-                <div className="group bg-[#FDF6E3] backdrop-blur-lg rounded-3xl p-8 border border-white/20 transition-all duration-300 transform hover:-translate-y-2 relative overflow-hidden h-64 flex flex-col justify-between">
+                <div className="feature-card-row-2 group bg-[#FDF6E3] backdrop-blur-lg rounded-3xl p-8 border border-white/20 transition-all duration-300 transform hover:-translate-y-2 relative overflow-hidden h-64 flex flex-col justify-between">
                   {/* Red Overlay on Hover */}
                   <div className="absolute inset-0 bg-[#D53840]/90 opacity-0 group-hover:opacity-100 transition-all duration-300 rounded-3xl flex flex-col items-center justify-center text-white p-8">
                     <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center text-3xl font-bold mb-6">
@@ -493,14 +705,21 @@ export default function Home() {
         </section>
 
         {/* About Section */}
-        <section id="about" className="py-20 bg-[#E6DDD4] relative">
+        <section ref={aboutRef} id="about" className="py-20 bg-[#E6DDD4] relative">
           {/* Solid background overlay to hide global background */}
           <div className="absolute inset-0 bg-[#E6DDD4]"></div>
           <div className="relative z-10">
             <div className="max-w-6xl mx-auto px-8">
               <div className="grid lg:grid-cols-2 gap-16 items-center">
-                <div>
-                  <h2 className="text-5xl font-heading-bold text-[#000934] mb-8">About CampusCam</h2>
+                <div className="about-text">
+                  <div className="flex items-center gap-4 mb-8">
+                    <h2 className="text-5xl font-heading-bold text-[#000934]">About</h2>
+                    <img
+                      src="/logoherored.png"
+                      alt="CampusCam Logo"
+                      className="h-20 w-auto ml-5"
+                    />
+                  </div>
 
                   <div className="space-y-6 text-lg text-gray-700 leading-relaxed font-body">
                     <p>
@@ -539,7 +758,7 @@ export default function Home() {
                 <div className="relative">
                   <div className="grid grid-cols-2 gap-6">
                     <div className="space-y-6">
-                      <div className="bg-white/80 backdrop-blur-lg rounded-3xl p-6 shadow-xl border border-white/20 transform rotate-3 hover:rotate-0 transition-transform duration-500">
+                      <div className="about-card bg-white/80 backdrop-blur-lg rounded-3xl p-6 shadow-xl border border-white/20 transform rotate-3 hover:rotate-0 transition-transform duration-500">
                         <div className="w-full h-40 bg-gradient-to-br from-[#D53840]/20 to-[#000934]/20 rounded-2xl flex items-center justify-center mb-4">
                           <svg className="w-16 h-16 text-[#000934]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
@@ -548,7 +767,7 @@ export default function Home() {
                         <p className="text-center text-[#000934] font-semibold">Study Groups</p>
                       </div>
 
-                      <div className="bg-white/80 backdrop-blur-lg rounded-3xl p-6 shadow-xl border border-white/20 transform -rotate-2 hover:rotate-0 transition-transform duration-500">
+                      <div className="about-card bg-white/80 backdrop-blur-lg rounded-3xl p-6 shadow-xl border border-white/20 transform -rotate-2 hover:rotate-0 transition-transform duration-500">
                         <div className="w-full h-40 bg-gradient-to-br from-[#000934]/20 to-[#D53840]/20 rounded-2xl flex items-center justify-center mb-4">
                           <svg className="w-16 h-16 text-[#D53840]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
@@ -559,7 +778,7 @@ export default function Home() {
                     </div>
 
                     <div className="space-y-6 mt-12">
-                      <div className="bg-white/80 backdrop-blur-lg rounded-3xl p-6 shadow-xl border border-white/20 transform rotate-2 hover:rotate-0 transition-transform duration-500">
+                      <div className="about-card bg-white/80 backdrop-blur-lg rounded-3xl p-6 shadow-xl border border-white/20 transform rotate-2 hover:rotate-0 transition-transform duration-500">
                         <div className="w-full h-40 bg-gradient-to-br from-[#D53840]/20 to-[#000934]/20 rounded-2xl flex items-center justify-center mb-4">
                           <svg className="w-16 h-16 text-[#000934]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9v-9m0-9v9" />
@@ -568,7 +787,7 @@ export default function Home() {
                         <p className="text-center text-[#000934] font-semibold">Global Network</p>
                       </div>
 
-                      <div className="bg-white/80 backdrop-blur-lg rounded-3xl p-6 shadow-xl border border-white/20 transform -rotate-1 hover:rotate-0 transition-transform duration-500">
+                      <div className="about-card bg-white/80 backdrop-blur-lg rounded-3xl p-6 shadow-xl border border-white/20 transform -rotate-1 hover:rotate-0 transition-transform duration-500">
                         <div className="w-full h-40 bg-gradient-to-br from-[#000934]/20 to-[#D53840]/20 rounded-2xl flex items-center justify-center mb-4">
                           <svg className="w-16 h-16 text-[#D53840]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
@@ -585,7 +804,7 @@ export default function Home() {
         </section>
 
         {/* Contact Section */}
-        <section id="contact" className="relative py-16 overflow-hidden">
+        <section ref={contactRef} id="contact" className="relative py-16 overflow-hidden">
           {/* Background Image */}
           <div className="absolute inset-0">
             <div
@@ -601,13 +820,13 @@ export default function Home() {
 
           {/* Diagonal Red Overlay - Made Wider */}
           <div className="absolute inset-0">
-            <div className="absolute inset-0 bg-[#D53840]/85 transform skew-x-12 origin-top-right w-3/5 h-full ml-auto"></div>
+            <div className="contact-overlay absolute inset-0 bg-[#D53840]/85 transform skew-x-12 origin-top-right w-3/5 h-full ml-auto"></div>
           </div>
 
           <div className="relative z-10 max-w-7xl mx-auto px-8 h-full flex items-center">
             <div className="w-full flex justify-end min-h-[500px]">
               {/* Contact Form - Positioned with margin from right */}
-              <div className="w-full max-w-lg mr-8">
+              <div className="contact-form w-full max-w-lg mr-8">
                 <div className="text-center mb-8">
                   <h2 className="text-4xl font-heading text-white mb-4">Contact Us</h2>
                   <p className="text-lg text-white/90 font-body">
@@ -699,12 +918,12 @@ export default function Home() {
         </section>
 
         {/* Final CTA Section */}
-        <section className="py-20 bg-[#E6DDD4] relative">
+        <section ref={finalCtaRef} className="py-20 bg-[#E6DDD4] relative">
           {/* Solid background overlay to hide global background */}
           <div className="absolute inset-0 bg-[#E6DDD4]"></div>
           <div className="relative z-10">
             <div className="max-w-4xl mx-auto text-center px-8">
-              <div className="bg-white/80 backdrop-blur-lg rounded-3xl p-12 shadow-2xl border border-white/20">
+              <div className="final-cta-card bg-white/80 backdrop-blur-lg rounded-3xl p-12 shadow-2xl border border-white/20">
                 <h2 className="text-4xl font-heading text-[#000934] mb-6">
                   Ready to Connect with Real Students?
                 </h2>
@@ -734,6 +953,18 @@ export default function Home() {
             </div>
           </div>
         </section>
+
+        {/* Footer */}
+        <footer className="py-6 bg-[#D53840] relative">
+          <div className="absolute inset-0 bg-[#D53840]"></div>
+          <div className="relative z-10">
+            <div className="max-w-6xl mx-auto px-8 text-center">
+              <p className="text-white/80 font-body">
+                Made with ❤️ by QalamWebStudio © 2026 CampusCam. All rights reserved.
+              </p>
+            </div>
+          </div>
+        </footer>
       </main>
     </div >
   );
