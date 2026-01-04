@@ -713,246 +713,26 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     console.log(`🔧 Creating peer connection with ${config.iceServers.length} ICE servers`);
     console.log(`🔧 ICE transport policy: ${config.iceTransportPolicy || 'all'}`);
     
+    // Log TURN servers for debugging
+    const turnServers = config.iceServers.filter(server => {
+      const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
+      return urls.some(url => url.startsWith('turn'));
+    });
+    
+    console.log(`🔧 TURN servers configured: ${turnServers.length}`);
+    turnServers.forEach((server, index) => {
+      const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
+      console.log(`   TURN ${index + 1}: ${urls[0]} (${server.username ? 'with credentials' : 'no credentials'})`);
+    });
+    
+    if (forceRelay) {
+      console.log('🔒 FORCED RELAY MODE: Only TURN servers will be used');
+    }
+    
     const peerConnection = new RTCPeerConnection(config);
 
-    // Setup enhanced network traversal monitoring
-    networkTraversalMonitorRef.current = new NetworkTraversalMonitor(
-      peerConnection,
-      (state: string, details: any) => {
-        console.log(`🔗 Network traversal event: ${state}`, details);
-        
-        switch (state) {
-          case 'ice-connected':
-            setLastStableConnection(Date.now());
-            setIceRestartAttempts(0);
-            break;
-            
-          case 'ice-disconnected':
-            // Handle temporary disconnections common in restrictive networks
-            if (details.timeSinceLastStable > 45000) { // 45 seconds
-              console.log('🔄 Long disconnection detected - may need ICE restart');
-            }
-            break;
-            
-          case 'ice-restart-needed':
-            handleEnhancedICERestart();
-            break;
-            
-          case 'ice-failed-permanently':
-            console.log('❌ ICE connection failed permanently after multiple restart attempts');
-            handleConnectionFailure();
-            break;
-        }
-      }
-    );
-
-    // Handle ICE candidates with enhanced logging
-    let iceGatheringTimeout: NodeJS.Timeout | null = null;
-    let iceCandidateCount = 0;
-    let relayCandidateCount = 0;
-    
-    peerConnection.onicecandidate = (event) => {
-      if (event.candidate) {
-        iceCandidateCount++;
-        
-        // Track relay candidates specifically
-        if (event.candidate.type === 'relay') {
-          relayCandidateCount++;
-          console.log(`🔄 TURN relay candidate found (${relayCandidateCount}):`, event.candidate.address);
-        }
-        
-        console.log(`ICE candidate found (${iceCandidateCount}):`, {
-          type: event.candidate.type,
-          protocol: event.candidate.protocol,
-          address: event.candidate.address,
-          port: event.candidate.port
-        });
-        
-        socket.emit('ice-candidate', event.candidate.toJSON());
-      } else {
-        console.log(`✅ ICE gathering completed: ${iceCandidateCount} total candidates (${relayCandidateCount} relay)`);
-        
-        // Warn if no relay candidates in restrictive network
-        if (networkType === 'restrictive' && relayCandidateCount === 0) {
-          console.warn('⚠️ No TURN relay candidates found in restrictive network - connection may fail');
-        }
-        
-        if (iceGatheringTimeout) {
-          clearTimeout(iceGatheringTimeout);
-          iceGatheringTimeout = null;
-        }
-      }
-    };
-
-    // Enhanced ICE gathering state handling
-    peerConnection.onicegatheringstatechange = () => {
-      console.log('ICE gathering state:', peerConnection.iceGatheringState);
-      
-      if (peerConnection.iceGatheringState === 'gathering') {
-        // Longer timeout for restrictive networks
-        const timeout = networkType === 'restrictive' ? 20000 : ICE_GATHERING_TIMEOUT_CONST;
-        
-        iceGatheringTimeout = setTimeout(() => {
-          console.log(`ICE gathering timeout after ${timeout}ms - proceeding with ${iceCandidateCount} candidates`);
-          
-          if (relayCandidateCount === 0 && networkType === 'restrictive') {
-            console.warn('⚠️ No TURN candidates gathered in restrictive network');
-          }
-        }, timeout);
-      } else if (peerConnection.iceGatheringState === 'complete') {
-        if (iceGatheringTimeout) {
-          clearTimeout(iceGatheringTimeout);
-          iceGatheringTimeout = null;
-        }
-      }
-    };
-
-    // Handle remote stream
-    peerConnection.ontrack = (event) => {
-      console.log('Received remote stream with', event.streams[0].getTracks().length, 'tracks');
-      if (remoteVideoRef.current && event.streams[0]) {
-        remoteVideoRef.current.srcObject = event.streams[0];
-      }
-    };
-
-    // Handle connection state changes with detailed logging
-    peerConnection.onconnectionstatechange = () => {
-      const state = peerConnection.connectionState;
-      console.log('Connection state changed:', state);
-      
-      switch (state) {
-        case 'connecting':
-          console.log('WebRTC connection is being established...');
-          // Clear any existing grace timers since we're actively connecting
-          clearGraceTimers();
-          break;
-        case 'connected':
-          console.log('WebRTC connection established successfully');
-          setConnectionState('connected');
-          setIsConnectionEstablished(true); // Mark connection as established
-          setReconnectAttempts(0);
-          setIsReconnecting(false);
-          // Clear all timers on successful connection - no more timeouts for established connections
-          clearAllTimeoutTimers();
-          clearGraceTimers();
-          if (initialConnectionTimeout) {
-            clearTimeout(initialConnectionTimeout);
-            setInitialConnectionTimeout(null);
-          }
-          break;
-        case 'disconnected':
-          console.log('WebRTC connection disconnected - implementing grace period');
-          setConnectionState('disconnected');
-          
-          // Implement grace period for temporary disconnections (Requirements 3.1, 3.5)
-          if (!disconnectionGraceTimer && !isReconnecting) {
-            console.log(`Starting ${DISCONNECTION_GRACE_PERIOD_CONST}ms grace period for disconnection`);
-            const graceTimer = setTimeout(() => {
-              if (peerConnectionRef.current && peerConnectionRef.current.connectionState === 'disconnected') {
-                console.log('Grace period expired, handling connection loss');
-                handleConnectionLoss();
-              }
-              setDisconnectionGraceTimer(null);
-            }, DISCONNECTION_GRACE_PERIOD_CONST);
-            setDisconnectionGraceTimer(graceTimer);
-          }
-          break;
-        case 'failed':
-          console.log('WebRTC connection failed - implementing grace period before retry');
-          setConnectionState('failed');
-          
-          // Implement grace period before attempting recovery (Requirements 3.1, 3.2)
-          if (!iceFailureGraceTimer && !isReconnecting) {
-            console.log(`Starting ${ICE_FAILURE_GRACE_PERIOD_CONST}ms grace period for connection failure`);
-            const graceTimer = setTimeout(() => {
-              if (peerConnectionRef.current && peerConnectionRef.current.connectionState === 'failed') {
-                console.log('Grace period expired, attempting connection recovery');
-                handleConnectionFailure();
-              }
-              setIceFailureGraceTimer(null);
-            }, ICE_FAILURE_GRACE_PERIOD_CONST);
-            setIceFailureGraceTimer(graceTimer);
-          }
-          break;
-        case 'closed':
-          console.log('WebRTC connection closed');
-          setConnectionState('disconnected');
-          clearGraceTimers();
-          break;
-      }
-    };
-
-    // Handle ICE connection state changes with detailed logging and improved retry logic
-    peerConnection.oniceconnectionstatechange = () => {
-      const iceState = peerConnection.iceConnectionState;
-      console.log('ICE connection state:', iceState);
-      
-      switch (iceState) {
-        case 'checking':
-          console.log('ICE connectivity checks are in progress...');
-          // Clear grace timers since we're actively checking connectivity
-          clearGraceTimers();
-          break;
-        case 'connected':
-          console.log('ICE connectivity checks succeeded');
-          clearGraceTimers();
-          break;
-        case 'completed':
-          console.log('ICE connectivity checks completed successfully');
-          clearGraceTimers();
-          break;
-        case 'failed':
-          console.log('ICE connectivity checks failed - implementing enhanced retry logic');
-          
-          // Implement grace period and enhanced retry logic for ICE failures
-          if (!iceFailureGraceTimer && !isReconnecting) {
-            console.log(`Starting ${ICE_FAILURE_GRACE_PERIOD_CONST}ms grace period for ICE failure`);
-            const graceTimer = setTimeout(() => {
-              if (peerConnection.iceConnectionState === 'failed') {
-                console.log('ICE failure grace period expired, attempting enhanced ICE restart');
-                handleEnhancedICERestart();
-              }
-              setIceFailureGraceTimer(null);
-            }, ICE_FAILURE_GRACE_PERIOD_CONST);
-            setIceFailureGraceTimer(graceTimer);
-          }
-          break;
-        case 'disconnected':
-          console.log('ICE connection disconnected - implementing grace period');
-          
-          // Implement grace period for ICE disconnections (Requirements 3.1, 3.5)
-          if (!disconnectionGraceTimer && !isReconnecting) {
-            console.log(`Starting ${DISCONNECTION_GRACE_PERIOD_CONST}ms grace period for ICE disconnection`);
-            const graceTimer = setTimeout(() => {
-              if (peerConnection.iceConnectionState === 'disconnected') {
-                console.log('ICE disconnection grace period expired, handling connection loss');
-                handleConnectionLoss();
-              }
-              setDisconnectionGraceTimer(null);
-            }, DISCONNECTION_GRACE_PERIOD_CONST);
-            setDisconnectionGraceTimer(graceTimer);
-          }
-          break;
-        case 'closed':
-          console.log('ICE connection closed');
-          setConnectionState('disconnected');
-          clearGraceTimers();
-          break;
-      }
-    };
-
-    // Handle signaling state changes
-    peerConnection.onsignalingstatechange = () => {
-      console.log('Signaling state:', peerConnection.signalingState);
-    };
-
-    // Handle data channel errors
-    peerConnection.ondatachannel = (event) => {
-      const channel = event.channel;
-      channel.onerror = (error) => {
-        console.error('Data channel error:', error);
-      };
-    };
+    // Setup all event handlers
+    setupPeerConnectionEventHandlers(peerConnection);
 
     return peerConnection;
   };
@@ -1029,8 +809,16 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       
       // Check if we already have a remote description
       if (peerConnectionRef.current.remoteDescription) {
-        console.log('⚠️ Remote description already set, ignoring duplicate offer');
-        return;
+        console.log('⚠️ Remote description already set');
+        
+        // Check if this is an ICE restart offer
+        if (offer.sdp && offer.sdp.includes('a=ice-options:ice2')) {
+          console.log('🔄 Detected ICE restart offer, processing...');
+          // Allow ICE restart offers even if remote description exists
+        } else {
+          console.log('Ignoring duplicate offer (not ICE restart)');
+          return;
+        }
       }
       
       // Check signaling state
@@ -1055,7 +843,11 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         if (currentUserId.localeCompare(partnerId) < 0) {
           console.log('🔄 Backing off from offer collision - accepting remote offer');
           // Reset to stable state first
-          await peerConnectionRef.current.setLocalDescription({ type: 'rollback' });
+          try {
+            await peerConnectionRef.current.setLocalDescription({ type: 'rollback' });
+          } catch (rollbackError) {
+            console.warn('Rollback failed, continuing anyway:', rollbackError);
+          }
         } else {
           console.log('⏳ Ignoring offer collision - keeping our offer');
           return;
@@ -1078,10 +870,17 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       console.log('✅ Answer created and sent successfully');
     } catch (error) {
       console.error('❌ Error handling offer:', error);
+      
+      // Don't retry ICE restart offers to avoid loops
+      if (offer.sdp && offer.sdp.includes('a=ice-options:ice2')) {
+        console.log('ICE restart offer failed, not retrying to avoid loops');
+        return;
+      }
+      
       onError('Failed to handle connection offer. Retrying...');
       
-      // Retry after exponential backoff delay (Requirements 4.2)
-      const retryDelay = calculateExponentialBackoffDelay(1, 2000, 8000); // Start with 2s, max 8s for offer handling retries
+      // Retry after exponential backoff delay
+      const retryDelay = calculateExponentialBackoffDelay(1, 2000, 8000);
       setTimeout(() => {
         if (peerConnectionRef.current && offer && !peerConnectionRef.current.remoteDescription) {
           console.log('🔄 Retrying offer handling...');
@@ -1426,40 +1225,78 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       
       console.log(`🔄 ICE restart attempt ${currentAttempt}/3`);
       
-      // Use the enhanced ICE restart function
-      const success = await performICERestart(peerConnectionRef.current, isInitiator);
-      
-      if (success && isInitiator) {
-        // Send the ICE restart offer via socket
-        const offer = peerConnectionRef.current.localDescription;
-        if (offer) {
-          console.log('📤 Sending ICE restart offer...');
-          socket.emit('offer', offer);
-        }
-      } else if (!success) {
-        console.log('❌ ICE restart failed, falling back to full reconnection');
+      // Check if peer connection is in stable state for ICE restart
+      if (peerConnectionRef.current.signalingState !== 'stable') {
+        console.log(`⚠️ Cannot restart ICE in signaling state: ${peerConnectionRef.current.signalingState}`);
         
-        if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS_CONST) {
-          attemptReconnection();
-        } else {
-          const errorMessage = `Connection failed after multiple ICE restart attempts.
-          
-          This typically indicates severe network restrictions. Please try:
-          • Refreshing the page
-          • Connecting from a different network
-          • Disabling VPN if active
-          • Using mobile data instead of WiFi`;
-          
-          onError(errorMessage);
-          setConnectionState('failed');
-        }
+        // Wait for stable state or fall back to full reconnection
+        setTimeout(() => {
+          if (peerConnectionRef.current?.signalingState === 'stable') {
+            handleEnhancedICERestart();
+          } else {
+            console.log('Signaling state not stable, falling back to full reconnection');
+            attemptReconnection();
+          }
+        }, 1000);
+        return;
       }
+
+      // Force relay mode for ICE restart if we're in a restrictive network
+      const shouldForceRelay = networkType === 'restrictive' || currentAttempt > 1;
+      
+      if (shouldForceRelay && !forceRelayMode) {
+        console.log('🔒 Forcing relay mode for ICE restart due to previous failures');
+        setForceRelayMode(true);
+        
+        // Recreate peer connection with relay-only mode
+        const newConfig = await getWebRTCConfiguration(true);
+        const newPeerConnection = new RTCPeerConnection(newConfig);
+        
+        // Copy event handlers and tracks from old connection
+        await recreatePeerConnectionWithRelayMode(newPeerConnection);
+        return;
+      }
+
+      // Perform proper ICE restart using createOffer with iceRestart: true
+      console.log('🔄 Creating ICE restart offer...');
+      const offer = await peerConnectionRef.current.createOffer({
+        iceRestart: true,
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: true
+      });
+      
+      console.log('📝 Setting local description for ICE restart...');
+      await peerConnectionRef.current.setLocalDescription(offer);
+      
+      // Send the ICE restart offer
+      console.log('📤 Sending ICE restart offer...');
+      socket.emit('offer', offer);
+      
+      console.log('✅ ICE restart initiated successfully');
+      
+      // Set timeout for ICE restart completion
+      setTimeout(() => {
+        if (peerConnectionRef.current && 
+            (peerConnectionRef.current.iceConnectionState === 'failed' || 
+             peerConnectionRef.current.iceConnectionState === 'disconnected')) {
+          console.log('❌ ICE restart timeout - connection still failed');
+          
+          if (currentAttempt < 3) {
+            handleEnhancedICERestart();
+          } else {
+            console.log('Max ICE restart attempts reached, falling back to full reconnection');
+            attemptReconnection();
+          }
+        }
+      }, 10000); // 10 second timeout for ICE restart
+      
     } catch (error) {
       console.error('Enhanced ICE restart failed:', error);
       
-      // Fall back to full reconnection
+      // Fall back to full reconnection with relay mode
       if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS_CONST) {
-        console.log('ICE restart failed, falling back to full reconnection');
+        console.log('ICE restart failed, falling back to full reconnection with relay mode');
+        setForceRelayMode(true);
         attemptReconnection();
       } else {
         const errorMessage = `ICE restart and reconnection failed after multiple attempts.
@@ -1469,12 +1306,313 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         Network type: ${networkType}
         Relay mode: ${forceRelayMode ? 'enabled' : 'disabled'}
         
-        Please try connecting from a less restrictive network.`;
+        This indicates severe network restrictions. Please try:
+        • Refreshing the page
+        • Connecting from a different network (mobile data)
+        • Disabling VPN if active
+        • Using a different browser`;
         
         onError(errorMessage);
         handleConnectionFailure();
       }
     }
+  };
+
+  // Helper function to recreate peer connection with relay mode
+  const recreatePeerConnectionWithRelayMode = async (newPeerConnection: RTCPeerConnection) => {
+    console.log('🔄 Recreating peer connection with relay-only mode...');
+    
+    // Setup event handlers for new connection
+    setupPeerConnectionEventHandlers(newPeerConnection);
+    
+    // Add local stream tracks
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(track => {
+        newPeerConnection.addTrack(track, localStreamRef.current!);
+      });
+    }
+    
+    // Close old connection and replace
+    if (peerConnectionRef.current) {
+      peerConnectionRef.current.close();
+    }
+    peerConnectionRef.current = newPeerConnection;
+    
+    // Create new offer with the relay-only connection
+    if (isInitiator) {
+      await createOffer();
+    }
+  };
+
+  // Extract peer connection event handler setup into separate function
+  const setupPeerConnectionEventHandlers = (peerConnection: RTCPeerConnection) => {
+    // Setup enhanced network traversal monitoring
+    networkTraversalMonitorRef.current = new NetworkTraversalMonitor(
+      peerConnection,
+      (state: string, details: any) => {
+        console.log(`🔗 Network traversal event: ${state}`, details);
+        
+        switch (state) {
+          case 'ice-connected':
+            setLastStableConnection(Date.now());
+            setIceRestartAttempts(0);
+            break;
+            
+          case 'ice-disconnected':
+            // Handle temporary disconnections common in restrictive networks
+            if (details.timeSinceLastStable > 45000) { // 45 seconds
+              console.log('🔄 Long disconnection detected - may need ICE restart');
+            }
+            break;
+            
+          case 'ice-restart-needed':
+            handleEnhancedICERestart();
+            break;
+            
+          case 'ice-failed-permanently':
+            console.log('❌ ICE connection failed permanently after multiple restart attempts');
+            handleConnectionFailure();
+            break;
+        }
+      }
+    );
+
+    // Handle ICE candidates with enhanced logging and TURN verification
+    let iceGatheringTimeout: NodeJS.Timeout | null = null;
+    let iceCandidateCount = 0;
+    let relayCandidateCount = 0;
+    let srflxCandidateCount = 0;
+    
+    peerConnection.onicecandidate = (event) => {
+      if (event.candidate) {
+        iceCandidateCount++;
+        
+        // Track different candidate types
+        if (event.candidate.type === 'relay') {
+          relayCandidateCount++;
+          console.log(`🔄 TURN relay candidate found (${relayCandidateCount}):`, {
+            address: event.candidate.address,
+            port: event.candidate.port,
+            protocol: event.candidate.protocol,
+            relatedAddress: event.candidate.relatedAddress,
+            relatedPort: event.candidate.relatedPort
+          });
+        } else if (event.candidate.type === 'srflx') {
+          srflxCandidateCount++;
+          console.log(`🌐 STUN srflx candidate found (${srflxCandidateCount}):`, {
+            address: event.candidate.address,
+            port: event.candidate.port
+          });
+        }
+        
+        console.log(`ICE candidate found (${iceCandidateCount}):`, {
+          type: event.candidate.type,
+          protocol: event.candidate.protocol,
+          address: event.candidate.address,
+          port: event.candidate.port,
+          priority: event.candidate.priority
+        });
+        
+        socket.emit('ice-candidate', event.candidate.toJSON());
+      } else {
+        console.log(`✅ ICE gathering completed: ${iceCandidateCount} total candidates`);
+        console.log(`   - Relay (TURN): ${relayCandidateCount}`);
+        console.log(`   - Server Reflexive (STUN): ${srflxCandidateCount}`);
+        console.log(`   - Host: ${iceCandidateCount - relayCandidateCount - srflxCandidateCount}`);
+        
+        // Critical: Warn if no relay candidates in restrictive network or when forced
+        if ((networkType === 'restrictive' || forceRelayMode) && relayCandidateCount === 0) {
+          console.error('❌ CRITICAL: No TURN relay candidates found!');
+          console.error('This will cause connection failures in restrictive networks.');
+          console.error('Check TURN server configuration and credentials.');
+          
+          // Force a reconnection with different TURN servers if available
+          if (iceRestartAttempts < 2) {
+            console.log('🔄 Attempting ICE restart to gather TURN candidates...');
+            setTimeout(() => handleEnhancedICERestart(), 2000);
+          }
+        }
+        
+        // Warn if only host candidates (no NAT traversal)
+        if (relayCandidateCount === 0 && srflxCandidateCount === 0) {
+          console.warn('⚠️ Only host candidates found - NAT traversal may fail');
+        }
+        
+        if (iceGatheringTimeout) {
+          clearTimeout(iceGatheringTimeout);
+          iceGatheringTimeout = null;
+        }
+      }
+    };
+
+    // Enhanced ICE gathering state handling with TURN verification
+    peerConnection.onicegatheringstatechange = () => {
+      console.log('ICE gathering state:', peerConnection.iceGatheringState);
+      
+      if (peerConnection.iceGatheringState === 'gathering') {
+        // Longer timeout for restrictive networks to allow TURN candidates
+        const timeout = (networkType === 'restrictive' || forceRelayMode) ? 25000 : ICE_GATHERING_TIMEOUT_CONST;
+        
+        console.log(`⏱️ ICE gathering timeout set to ${timeout}ms for network type: ${networkType}`);
+        
+        iceGatheringTimeout = setTimeout(() => {
+          console.log(`⏰ ICE gathering timeout after ${timeout}ms`);
+          console.log(`Final candidate count: ${iceCandidateCount} (${relayCandidateCount} relay, ${srflxCandidateCount} srflx)`);
+          
+          if (relayCandidateCount === 0 && (networkType === 'restrictive' || forceRelayMode)) {
+            console.error('❌ TURN gathering failed - no relay candidates after timeout');
+          }
+        }, timeout);
+      } else if (peerConnection.iceGatheringState === 'complete') {
+        if (iceGatheringTimeout) {
+          clearTimeout(iceGatheringTimeout);
+          iceGatheringTimeout = null;
+        }
+      }
+    };
+
+    // Handle remote stream
+    peerConnection.ontrack = (event) => {
+      console.log('Received remote stream with', event.streams[0].getTracks().length, 'tracks');
+      if (remoteVideoRef.current && event.streams[0]) {
+        remoteVideoRef.current.srcObject = event.streams[0];
+      }
+    };
+
+    // Handle connection state changes with detailed logging
+    peerConnection.onconnectionstatechange = () => {
+      const state = peerConnection.connectionState;
+      console.log('Connection state changed:', state);
+      
+      switch (state) {
+        case 'connecting':
+          console.log('WebRTC connection is being established...');
+          clearGraceTimers();
+          break;
+        case 'connected':
+          console.log('WebRTC connection established successfully');
+          setConnectionState('connected');
+          setIsConnectionEstablished(true);
+          setReconnectAttempts(0);
+          setIsReconnecting(false);
+          setIceRestartAttempts(0); // Reset ICE restart attempts on successful connection
+          clearAllTimeoutTimers();
+          clearGraceTimers();
+          if (initialConnectionTimeout) {
+            clearTimeout(initialConnectionTimeout);
+            setInitialConnectionTimeout(null);
+          }
+          break;
+        case 'disconnected':
+          console.log('WebRTC connection disconnected - implementing grace period');
+          setConnectionState('disconnected');
+          
+          if (!disconnectionGraceTimer && !isReconnecting) {
+            console.log(`Starting ${DISCONNECTION_GRACE_PERIOD_CONST}ms grace period for disconnection`);
+            const graceTimer = setTimeout(() => {
+              if (peerConnection.connectionState === 'disconnected') {
+                console.log('Grace period expired, attempting ICE restart first');
+                handleEnhancedICERestart(); // Try ICE restart before full reconnection
+              }
+              setDisconnectionGraceTimer(null);
+            }, DISCONNECTION_GRACE_PERIOD_CONST);
+            setDisconnectionGraceTimer(graceTimer);
+          }
+          break;
+        case 'failed':
+          console.log('WebRTC connection failed - implementing grace period before retry');
+          setConnectionState('failed');
+          
+          if (!iceFailureGraceTimer && !isReconnecting) {
+            console.log(`Starting ${ICE_FAILURE_GRACE_PERIOD_CONST}ms grace period for connection failure`);
+            const graceTimer = setTimeout(() => {
+              if (peerConnection.connectionState === 'failed') {
+                console.log('Grace period expired, attempting ICE restart');
+                handleEnhancedICERestart(); // Try ICE restart before full reconnection
+              }
+              setIceFailureGraceTimer(null);
+            }, ICE_FAILURE_GRACE_PERIOD_CONST);
+            setIceFailureGraceTimer(graceTimer);
+          }
+          break;
+        case 'closed':
+          console.log('WebRTC connection closed');
+          setConnectionState('disconnected');
+          clearGraceTimers();
+          break;
+      }
+    };
+
+    // Handle ICE connection state changes with enhanced retry logic
+    peerConnection.oniceconnectionstatechange = () => {
+      const iceState = peerConnection.iceConnectionState;
+      console.log('ICE connection state:', iceState);
+      
+      switch (iceState) {
+        case 'checking':
+          console.log('ICE connectivity checks are in progress...');
+          clearGraceTimers();
+          break;
+        case 'connected':
+          console.log('ICE connectivity checks succeeded');
+          setLastStableConnection(Date.now());
+          clearGraceTimers();
+          break;
+        case 'completed':
+          console.log('ICE connectivity checks completed successfully');
+          setLastStableConnection(Date.now());
+          clearGraceTimers();
+          break;
+        case 'failed':
+          console.log('ICE connectivity checks failed - implementing enhanced retry logic');
+          
+          if (!iceFailureGraceTimer && !isReconnecting) {
+            console.log(`Starting ${ICE_FAILURE_GRACE_PERIOD_CONST}ms grace period for ICE failure`);
+            const graceTimer = setTimeout(() => {
+              if (peerConnection.iceConnectionState === 'failed') {
+                console.log('ICE failure grace period expired, attempting enhanced ICE restart');
+                handleEnhancedICERestart();
+              }
+              setIceFailureGraceTimer(null);
+            }, ICE_FAILURE_GRACE_PERIOD_CONST);
+            setIceFailureGraceTimer(graceTimer);
+          }
+          break;
+        case 'disconnected':
+          console.log('ICE connection disconnected - implementing grace period');
+          
+          if (!disconnectionGraceTimer && !isReconnecting) {
+            console.log(`Starting ${DISCONNECTION_GRACE_PERIOD_CONST}ms grace period for ICE disconnection`);
+            const graceTimer = setTimeout(() => {
+              if (peerConnection.iceConnectionState === 'disconnected') {
+                console.log('ICE disconnection grace period expired, attempting ICE restart');
+                handleEnhancedICERestart(); // Try ICE restart first
+              }
+              setDisconnectionGraceTimer(null);
+            }, DISCONNECTION_GRACE_PERIOD_CONST);
+            setDisconnectionGraceTimer(graceTimer);
+          }
+          break;
+        case 'closed':
+          console.log('ICE connection closed');
+          setConnectionState('disconnected');
+          clearGraceTimers();
+          break;
+      }
+    };
+
+    // Handle signaling state changes
+    peerConnection.onsignalingstatechange = () => {
+      console.log('Signaling state:', peerConnection.signalingState);
+    };
+
+    // Handle data channel errors
+    peerConnection.ondatachannel = (event) => {
+      const channel = event.channel;
+      channel.onerror = (error) => {
+        console.error('Data channel error:', error);
+      };
+    };
   };
 
   const attemptReconnection = async () => {
@@ -1487,13 +1625,13 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     const currentAttempt = reconnectAttempts + 1;
     setReconnectAttempts(currentAttempt);
     
-    // Clear any existing grace timers and timeout timers to prevent conflicts (Requirements 3.5)
+    // Clear any existing grace timers and timeout timers to prevent conflicts
     clearGraceTimers();
     clearAllTimeoutTimers();
     
     console.log(`Attempting reconnection ${currentAttempt}/${MAX_RECONNECT_ATTEMPTS}`);
 
-    // Implement proper exponential backoff with reasonable maximum delays (Requirements 4.2)
+    // Implement proper exponential backoff with reasonable maximum delays
     const delay = calculateExponentialBackoffDelay(currentAttempt);
     
     console.log(`Exponential backoff: attempt=${currentAttempt}, delay=${delay}ms (max=${MAX_RECONNECT_DELAY_CONST}ms)`);
@@ -1502,13 +1640,23 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     await new Promise(resolve => setTimeout(resolve, delay));
 
     try {
+      // Force relay mode after first failure in restrictive networks
+      const shouldForceRelay = forceRelayMode || 
+                              networkType === 'restrictive' || 
+                              currentAttempt > 1;
+      
+      if (shouldForceRelay && !forceRelayMode) {
+        console.log('🔒 Enabling relay mode for reconnection attempt');
+        setForceRelayMode(true);
+      }
+
       // Close existing peer connection
       if (peerConnectionRef.current) {
         peerConnectionRef.current.close();
       }
 
       // Create new peer connection with enhanced error handling and network traversal
-      const newPeerConnection = await createPeerConnection(forceRelayMode);
+      const newPeerConnection = await createPeerConnection(shouldForceRelay);
       peerConnectionRef.current = newPeerConnection;
 
       // Re-add local stream if available, otherwise try to get media again
@@ -1545,7 +1693,6 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       }
 
       // Set timeout only for initial connection setup, not for established connection monitoring
-      // Prevent multiple timeout timers by checking if we already have active timers (Requirements 3.5)
       if (!isConnectionEstablished && activeTimeoutTimers.size === 0) {
         // Use exponential backoff for timeout duration as well
         const baseTimeout = INITIAL_CONNECTION_TIMEOUT_CONST;
@@ -1574,17 +1721,24 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       setIsReconnecting(false);
       
       if (currentAttempt >= MAX_RECONNECT_ATTEMPTS_CONST) {
-        // Enhanced error handling for maximum retry scenarios (Requirements 4.5)
+        // Enhanced error handling for maximum retry scenarios
         const detailedError = `Unable to reconnect after ${MAX_RECONNECT_ATTEMPTS_CONST} attempts. 
         
         Last error: ${error instanceof Error ? error.message : 'Unknown error'}
+        Network type: ${networkType}
+        Relay mode: ${forceRelayMode ? 'enabled' : 'disabled'}
         
-        Possible solutions:
+        This typically indicates:
+        • Severe network restrictions (firewall/NAT)
+        • TURN server connectivity issues
+        • Partner disconnected
+        
+        Solutions to try:
         • Refresh the page and try again
-        • Check your internet connection
-        • Try connecting from a different network
-        • Disable VPN if using one
-        • Contact support if the problem persists`;
+        • Switch to mobile data if on WiFi
+        • Try a different browser
+        • Disable VPN if active
+        • Contact support if issues persist`;
         
         onError(detailedError);
         setConnectionState('failed');

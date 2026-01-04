@@ -10,6 +10,7 @@ import {
   NetworkTraversalMonitor,
   performICERestart
 } from './webrtc-network-traversal';
+import { testAllTURNServers, quickTURNCheck } from './turn-test';
 
 export interface WebRTCConfig {
   iceServers: RTCIceServer[];
@@ -25,6 +26,17 @@ export interface WebRTCConfig {
  */
 export async function getWebRTCConfiguration(forceRelay: boolean = false): Promise<WebRTCConfig> {
   try {
+    // Test TURN connectivity first if forcing relay mode
+    if (forceRelay) {
+      console.log('🔍 Testing TURN connectivity before forcing relay mode...');
+      const hasTurn = await quickTURNCheck();
+      if (!hasTurn) {
+        console.error('❌ No working TURN servers found but relay mode requested!');
+        console.error('This will cause immediate connection failure.');
+        // Continue anyway but log the issue
+      }
+    }
+    
     // Get optimized configuration based on network environment
     const config = await getNetworkTraversalConfig(forceRelay);
     
@@ -38,8 +50,19 @@ export async function getWebRTCConfiguration(forceRelay: boolean = false): Promi
     
     if (turnServers.length > 0) {
       console.log(`✅ ${turnServers.length} TURN servers configured for NAT traversal`);
+      
+      // Log individual TURN servers for debugging
+      turnServers.forEach((server, index) => {
+        const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
+        const firstUrl = urls[0];
+        console.log(`   TURN ${index + 1}: ${firstUrl} (${server.username ? 'authenticated' : 'no auth'})`);
+      });
     } else {
       console.warn('⚠️ No TURN servers configured - may fail in restrictive networks');
+      
+      if (forceRelay) {
+        throw new Error('Relay mode requested but no TURN servers available');
+      }
     }
     
     return config;
@@ -47,16 +70,19 @@ export async function getWebRTCConfiguration(forceRelay: boolean = false): Promi
     console.error('❌ Failed to get WebRTC configuration:', error);
     
     // Fallback configuration with basic STUN servers
-    return {
+    const fallbackConfig = {
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
         { urls: 'stun:stun.services.mozilla.com' }
       ],
       iceCandidatePoolSize: 10,
-      bundlePolicy: 'max-bundle',
-      rtcpMuxPolicy: 'require'
+      bundlePolicy: 'max-bundle' as RTCBundlePolicy,
+      rtcpMuxPolicy: 'require' as RTCRtcpMuxPolicy
     };
+    
+    console.log('🔄 Using fallback STUN-only configuration');
+    return fallbackConfig;
   }
 }
 
@@ -224,12 +250,18 @@ async function testSTUNConnectivity(): Promise<boolean> {
   });
 }
 
-// Export the enhanced network traversal components
+// Export the enhanced network traversal components and TURN testing
 export { 
   NetworkTraversalMonitor, 
   performICERestart, 
   detectNetworkEnvironment 
 } from './webrtc-network-traversal';
+
+export { 
+  testAllTURNServers, 
+  quickTURNCheck,
+  testTURNServer 
+} from './turn-test';
 
 /**
  * Get media stream with fallback options

@@ -165,14 +165,17 @@ export async function getNetworkTraversalConfig(forceRelay: boolean = false): Pr
   // Build ICE servers array
   const iceServers: RTCIceServer[] = [];
 
-  // Add STUN servers (always include for NAT discovery)
-  iceServers.push(...STUN_SERVERS.map(url => ({ urls: url })));
+  // Add STUN servers (always include for NAT discovery unless forcing relay)
+  if (!forceRelay) {
+    iceServers.push(...STUN_SERVERS.map(url => ({ urls: url })));
+  }
 
   // Add TURN servers based on environment
   const turnServers = process.env.NODE_ENV === 'production' 
     ? PRODUCTION_TURN_SERVERS 
     : [...PRODUCTION_TURN_SERVERS, ...FREE_TURN_SERVERS];
 
+  let workingTurnServers = 0;
   for (const turnConfig of turnServers) {
     if (turnConfig.username && turnConfig.credential) {
       iceServers.push({
@@ -180,6 +183,7 @@ export async function getNetworkTraversalConfig(forceRelay: boolean = false): Pr
         username: turnConfig.username,
         credential: turnConfig.credential
       });
+      workingTurnServers++;
     }
   }
 
@@ -211,14 +215,30 @@ export async function getNetworkTraversalConfig(forceRelay: boolean = false): Pr
         credential: customTurnCredential
       }
     );
+    workingTurnServers++;
   }
 
   // Determine ICE transport policy
   let iceTransportPolicy: 'all' | 'relay' = 'all';
   
-  if (forceRelay || networkEnv.isRestrictive || networkEnv.networkType === 'restrictive') {
+  if (forceRelay) {
+    iceTransportPolicy = 'relay';
+    console.log('🔒 FORCED RELAY MODE: Only TURN servers will be used');
+    
+    // Ensure we have TURN servers when forcing relay
+    if (workingTurnServers === 0) {
+      console.error('❌ CRITICAL: Relay mode forced but no TURN servers available!');
+      console.error('This will cause immediate connection failure.');
+      console.error('Please configure TURN servers in environment variables.');
+    }
+  } else if (networkEnv.isRestrictive || networkEnv.networkType === 'restrictive') {
     iceTransportPolicy = 'relay';
     console.log('🔒 Using relay-only mode for restrictive network');
+    
+    if (workingTurnServers === 0) {
+      console.warn('⚠️ Restrictive network detected but no TURN servers - may fail');
+      iceTransportPolicy = 'all'; // Fall back to all if no TURN available
+    }
   } else {
     console.log('🌐 Using all transport modes (STUN + TURN)');
   }
@@ -226,12 +246,17 @@ export async function getNetworkTraversalConfig(forceRelay: boolean = false): Pr
   const config: WebRTCConfig = {
     iceServers,
     iceTransportPolicy,
-    iceCandidatePoolSize: 10, // Pre-gather candidates
+    iceCandidatePoolSize: forceRelay ? 0 : 10, // Don't pre-gather in relay mode
     bundlePolicy: 'max-bundle', // Bundle all media on single transport
     rtcpMuxPolicy: 'require' // Multiplex RTP and RTCP
   };
 
   console.log(`WebRTC config: ${iceServers.length} ICE servers, policy: ${iceTransportPolicy}`);
+  console.log(`TURN servers configured: ${workingTurnServers}`);
+  
+  if (forceRelay && workingTurnServers === 0) {
+    throw new Error('Relay mode requested but no TURN servers available');
+  }
   
   return config;
 }
@@ -402,25 +427,28 @@ export async function performICERestart(
     console.log('🔄 Performing ICE restart for network traversal...');
     
     if (peerConnection.signalingState !== 'stable') {
-      console.warn('Cannot perform ICE restart: signaling state is not stable');
+      console.warn(`Cannot perform ICE restart: signaling state is ${peerConnection.signalingState}`);
       return false;
     }
 
     if (isInitiator) {
       // Create new offer with ICE restart
+      console.log('🔄 Creating ICE restart offer...');
       const offer = await peerConnection.createOffer({ 
         iceRestart: true,
         offerToReceiveAudio: true,
         offerToReceiveVideo: true
       });
       
+      console.log('📝 Setting local description for ICE restart...');
       await peerConnection.setLocalDescription(offer);
+      
       console.log('✅ ICE restart offer created and set as local description');
       
       // The offer should be sent via signaling (handled by caller)
       return true;
     } else {
-      console.log('ICE restart initiated by remote peer');
+      console.log('ICE restart will be initiated by remote peer');
       return true;
     }
   } catch (error) {
