@@ -8,5 +8,22 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-inter), Arial, Helvetica, sans-serif;
+}
+
+/* Font weight utilities for headings and body text */
+.font-heading {
+  font-weight: 700;
+}
+
+.font-heading-bold {
+  font-weight: 800;
+}
+
+.font-body {
+  font-weight: 400;
+}
+
+.font-body-medium {
+  font-weight: 500;
 }

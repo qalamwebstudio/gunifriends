@@ -1,0 +1,740 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import Link from 'next/link';
+
+export default function Home() {
+  const [activeSection, setActiveSection] = useState('home');
+  const [isScrolled, setIsScrolled] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      // Change navbar when user scrolls past the hero section (full viewport height)
+      setIsScrolled(window.scrollY > window.innerHeight - 100);
+    };
+
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  return (
+    <div
+      className="min-h-screen overflow-x-hidden relative"
+      style={{
+        backgroundImage: `url('/friends.jpeg')`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
+        backgroundAttachment: 'fixed'
+      }}
+    >
+      {/* Top Navigation Bar */}
+      <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${isScrolled ? 'bg-white/95 backdrop-blur-sm shadow-lg' : ''}`}>
+        <div className="max-w-7xl mx-auto px-6 py-4">
+          <div className="flex items-center justify-between">
+            {/* Logo Section - Left Side */}
+            <div className="flex items-center space-x-3 z-10">
+              <img
+                src={isScrolled ? "/logoherored.png" : "/logohero.png"}
+                alt="Logo"
+                className="h-12 w-auto transition-all duration-300"
+              />
+            </div>
+
+            {/* Navigation Section - Right Side */}
+            <div className="relative">
+              {/* Navigation background - changes based on scroll */}
+              <div className={`relative transition-all duration-300 ${isScrolled
+                ? 'bg-transparent' // When scrolled past hero, let the main nav background show through
+                : 'bg-white/95 backdrop-blur-sm shadow-lg' // When in hero section, show white background with diagonal cut
+                }`}
+                style={!isScrolled ? {
+                  clipPath: 'polygon(60px 0%, 100% 0%, 100% 100%, 0% 100%)',
+                  paddingLeft: '80px',
+                  paddingRight: '20px',
+                  paddingTop: '12px',
+                  paddingBottom: '12px'
+                } : {
+                  paddingLeft: '20px',
+                  paddingRight: '20px',
+                  paddingTop: '12px',
+                  paddingBottom: '12px'
+                }}>
+
+                {/* Navigation Menu */}
+                <div className="flex items-center space-x-8">
+                  <a
+                    href="#home"
+                    className={`px-4 py-2 font-body-medium transition-all duration-300 ${activeSection === 'home' ? 'text-[#D53840] border-b-2 border-[#D53840]' : 'text-gray-700 hover:text-[#D53840]'}`}
+                    onClick={() => setActiveSection('home')}
+                  >
+                    HOME
+                  </a>
+                  <a
+                    href="#about"
+                    className={`px-4 py-2 font-body-medium transition-all duration-300 ${activeSection === 'about' ? 'text-[#D53840] border-b-2 border-[#D53840]' : 'text-gray-700 hover:text-[#D53840]'}`}
+                    onClick={() => setActiveSection('about')}
+                  >
+                    ABOUT
+                  </a>
+                  <a
+                    href="#contact"
+                    className={`px-4 py-2 font-body-medium transition-all duration-300 ${activeSection === 'contact' ? 'text-[#D53840] border-b-2 border-[#D53840]' : 'text-gray-700 hover:text-[#D53840]'}`}
+                    onClick={() => setActiveSection('contact')}
+                  >
+                    CONTACT US
+                  </a>
+                  <Link
+                    href="/login"
+                    className="px-4 py-2 font-body-medium text-gray-700 hover:text-[#000934] transition-all duration-300"
+                  >
+                    LOGIN
+                  </Link>
+
+                  {/* Get Started Button */}
+                  <div className="flex items-center space-x-2 bg-[#D53840] text-white px-4 py-2 rounded-lg ml-4">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                    </svg>
+                    <span className="text-sm font-body-medium">Get Started Free</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      {/* Main Content Area */}
+      <main>
+        {/* Hero Section */}
+        <section id="home" className="relative h-screen overflow-hidden">
+          {/* Background Image */}
+          <div className="absolute inset-0">
+            <div
+              className="w-full h-full bg-cover bg-center bg-no-repeat"
+              style={{
+                backgroundImage: `url('/heroback.png')`
+              }}
+            >
+              {/* Overlay for better text readability */}
+              <div className="absolute inset-0 bg-black/20"></div>
+            </div>
+          </div>
+
+          {/* Diagonal Red Overlay */}
+          <div className="absolute inset-0">
+            <div className="absolute inset-0 bg-[#D53840]/75 transform -skew-x-12 origin-top-left w-3/5 h-full"></div>
+          </div>
+
+          {/* Hero Content */}
+          <div className="relative z-10 h-full flex items-center">
+            <div className="max-w-2xl ml-16 text-white animate-fadeInUp">
+              <h1 className="text-6xl font-heading-bold leading-tight mb-6">
+                Meet Real Students.
+                <span className="block">Face to Face.</span>
+              </h1>
+
+              <p className="text-xl mb-4 opacity-90 leading-relaxed font-body-medium">
+                Random video chat between verified university students â€” no bots, no fake profiles.
+              </p>
+
+              <p className="text-lg mb-8 font-body-medium">
+                CampusCam â€” Verified Students. Real Connections.
+              </p>
+
+              <div className="flex flex-col sm:flex-row gap-4">
+                <Link
+                  href="/register"
+                  className="group px-8 py-4 bg-[#000934] text-white rounded-2xl hover:bg-[#000934]/90 transition-all duration-300 font-semibold text-lg shadow-xl hover:shadow-2xl transform hover:-translate-y-1 flex items-center justify-center space-x-2"
+                >
+                  <span>Start Video Chat</span>
+                  <svg className="w-5 h-5 group-hover:translate-x-1 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                  </svg>
+                </Link>
+
+                <Link
+                  href="/login"
+                  className="px-8 py-4 border-2 border-white text-white rounded-2xl hover:bg-white hover:text-[#D53840] transition-all duration-300 font-semibold text-lg flex items-center justify-center"
+                >
+                  Login with University Email
+                </Link>
+              </div>
+            </div>
+          </div>
+
+        </section>
+
+        {/* How It Works Section */}
+        <section className="py-16 bg-[#E6DDD4] relative">
+          {/* Solid background overlay to hide global background */}
+          <div className="absolute inset-0 bg-[#E6DDD4]"></div>
+          <div className="relative z-10">
+            <div className="max-w-6xl mx-auto px-8">
+              <div className="text-center mb-12">
+                <h2 className="text-4xl font-heading text-[#000934] mb-4">How It Works</h2>
+                <p className="text-lg text-gray-700 font-body">Connect with verified students in three simple steps</p>
+              </div>
+
+              {/* Steps Container with Connecting Line */}
+              <div className="relative">
+                {/* Red Connecting Line */}
+                <div className="absolute top-1/2 left-0 right-0 h-1 bg-[#D53840] transform -translate-y-1/2 z-0"></div>
+
+                {/* Steps Grid */}
+                <div className="grid grid-cols-3 gap-8 relative z-10">
+
+                  {/* Step 1 */}
+                  <div className="group relative">
+                    <div className="bg-white/80 backdrop-blur-lg rounded-3xl p-8 shadow-xl border border-white/20 transition-all duration-300 transform hover:-translate-y-2 hover:shadow-2xl relative overflow-hidden">
+                      {/* Red Overlay on Hover */}
+                      <div className="absolute inset-0 bg-[#D53840]/90 opacity-0 group-hover:opacity-100 transition-all duration-300 rounded-3xl flex flex-col items-center justify-center text-white">
+                        <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center text-2xl font-bold mb-4">
+                          1
+                        </div>
+                        <h3 className="text-xl font-heading mb-3">Register & Get Verified</h3>
+                        <p className="text-center text-sm opacity-90 font-body">Sign up with your university email address. Our system automatically verifies your student status.</p>
+                      </div>
+
+                      {/* Default Content */}
+                      <div className="group-hover:opacity-0 transition-all duration-300">
+                        <div className="w-full h-32 bg-gradient-to-br from-[#D53840]/20 to-[#000934]/20 rounded-2xl flex items-center justify-center mb-6">
+                          <svg className="w-16 h-16 text-[#000934]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" />
+                          </svg>
+                        </div>
+                        <div className="text-center">
+                          <div className="w-12 h-12 bg-[#D53840] text-white rounded-full flex items-center justify-center text-xl font-bold mx-auto mb-3">
+                            1
+                          </div>
+                          <h4 className="text-lg font-heading text-[#000934]">Register & Get Verified</h4>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Step 2 */}
+                  <div className="group relative">
+                    <div className="bg-white/80 backdrop-blur-lg rounded-3xl p-8 shadow-xl border border-white/20 transition-all duration-300 transform hover:-translate-y-2 hover:shadow-2xl relative overflow-hidden">
+                      {/* Red Overlay on Hover */}
+                      <div className="absolute inset-0 bg-[#D53840]/90 opacity-0 group-hover:opacity-100 transition-all duration-300 rounded-3xl flex flex-col items-center justify-center text-white">
+                        <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center text-2xl font-bold mb-4">
+                          2
+                        </div>
+                        <h3 className="text-xl font-heading mb-3">Login Securely</h3>
+                        <p className="text-center text-sm opacity-90 font-body">Access your account with confidence. Our secure authentication system protects your privacy.</p>
+                      </div>
+
+                      {/* Default Content */}
+                      <div className="group-hover:opacity-0 transition-all duration-300">
+                        <div className="w-full h-32 bg-gradient-to-br from-[#000934]/20 to-[#D53840]/20 rounded-2xl flex items-center justify-center mb-6">
+                          <svg className="w-16 h-16 text-[#D53840]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                          </svg>
+                        </div>
+                        <div className="text-center">
+                          <div className="w-12 h-12 bg-[#D53840] text-white rounded-full flex items-center justify-center text-xl font-bold mx-auto mb-3">
+                            2
+                          </div>
+                          <h4 className="text-lg font-heading text-[#000934]">Login Securely</h4>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Step 3 */}
+                  <div className="group relative">
+                    <div className="bg-white/80 backdrop-blur-lg rounded-3xl p-8 shadow-xl border border-white/20 transition-all duration-300 transform hover:-translate-y-2 hover:shadow-2xl relative overflow-hidden">
+                      {/* Red Overlay on Hover */}
+                      <div className="absolute inset-0 bg-[#D53840]/90 opacity-0 group-hover:opacity-100 transition-all duration-300 rounded-3xl flex flex-col items-center justify-center text-white">
+                        <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center text-2xl font-bold mb-4">
+                          3
+                        </div>
+                        <h3 className="text-xl font-heading mb-3">Start Video Chat</h3>
+                        <p className="text-center text-sm opacity-90 font-body">Connect with students from your campus or explore global connections with our smart matching system.</p>
+                      </div>
+
+                      {/* Default Content */}
+                      <div className="group-hover:opacity-0 transition-all duration-300">
+                        <div className="w-full h-32 bg-gradient-to-br from-[#D53840]/20 to-[#000934]/20 rounded-2xl flex items-center justify-center mb-6">
+                          <svg className="w-16 h-16 text-[#000934]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                          </svg>
+                        </div>
+                        <div className="text-center">
+                          <div className="w-12 h-12 bg-[#D53840] text-white rounded-full flex items-center justify-center text-xl font-bold mx-auto mb-3">
+                            3
+                          </div>
+                          <h4 className="text-lg font-heading text-[#000934]">Start Video Chat</h4>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Features Section */}
+        <section className="py-20 relative">
+          {/* Red overlay on the global background */}
+          <div className="absolute inset-0 bg-[#D53840]/85"></div>
+          <div className="relative z-10">
+            <div className="max-w-6xl mx-auto px-8">
+              <div className="text-center mb-16">
+                <h2 className="text-5xl font-heading-bold text-white mb-6">Our Features</h2>
+                <p className="text-xl text-white/90 max-w-2xl mx-auto font-body">
+                  Everything you need for safe, meaningful student connections
+                </p>
+              </div>
+
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+                {/* Feature 1 */}
+                <div className="group bg-[#FDF6E3] backdrop-blur-lg rounded-3xl p-8 border border-white/20 transition-all duration-300 transform hover:-translate-y-2 relative overflow-hidden h-64 flex flex-col justify-between">
+                  {/* Red Overlay on Hover */}
+                  <div className="absolute inset-0 bg-[#D53840]/90 opacity-0 group-hover:opacity-100 transition-all duration-300 rounded-3xl flex flex-col items-center justify-center text-white p-8">
+                    <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center text-3xl font-bold mb-6">
+                      <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                      </svg>
+                    </div>
+                    <h3 className="text-2xl font-heading-bold mb-4 text-center">Verified Students Only</h3>
+                    <p className="text-center text-sm opacity-90 leading-relaxed font-body">Every user is verified through their university email address, ensuring authentic connections.</p>
+                  </div>
+
+                  {/* Default Content */}
+                  <div className="group-hover:opacity-0 transition-all duration-300 flex flex-col justify-between h-full">
+                    {/* Centered Icon */}
+                    <div className="flex-1 flex items-center justify-center">
+                      <div className="w-20 h-20 bg-[#000934] rounded-full flex items-center justify-center">
+                        <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                        </svg>
+                      </div>
+                    </div>
+                    {/* Bottom Heading */}
+                    <div className="text-center">
+                      <h3 className="text-xl font-heading text-[#000934]">Verified Students Only</h3>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Feature 2 */}
+                <div className="group bg-[#FDF6E3] backdrop-blur-lg rounded-3xl p-8 border border-white/20 transition-all duration-300 transform hover:-translate-y-2 relative overflow-hidden h-64 flex flex-col justify-between">
+                  {/* Red Overlay on Hover */}
+                  <div className="absolute inset-0 bg-[#D53840]/90 opacity-0 group-hover:opacity-100 transition-all duration-300 rounded-3xl flex flex-col items-center justify-center text-white p-8">
+                    <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center text-3xl font-bold mb-6">
+                      <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
+                    </div>
+                    <h3 className="text-2xl font-heading-bold mb-4 text-center">Random Video Chat</h3>
+                    <p className="text-center text-sm opacity-90 leading-relaxed font-body">Connect instantly with students through high-quality video calls and real-time conversations.</p>
+                  </div>
+
+                  {/* Default Content */}
+                  <div className="group-hover:opacity-0 transition-all duration-300 flex flex-col justify-between h-full">
+                    {/* Centered Icon */}
+                    <div className="flex-1 flex items-center justify-center">
+                      <div className="w-20 h-20 bg-[#000934] rounded-full flex items-center justify-center">
+                        <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                      </div>
+                    </div>
+                    {/* Bottom Heading */}
+                    <div className="text-center">
+                      <h3 className="text-xl font-heading text-[#000934]">Random Video Chat</h3>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Feature 3 */}
+                <div className="group bg-[#FDF6E3] backdrop-blur-lg rounded-3xl p-8 border border-white/20 transition-all duration-300 transform hover:-translate-y-2 relative overflow-hidden h-64 flex flex-col justify-between">
+                  {/* Red Overlay on Hover */}
+                  <div className="absolute inset-0 bg-[#D53840]/90 opacity-0 group-hover:opacity-100 transition-all duration-300 rounded-3xl flex flex-col items-center justify-center text-white p-8">
+                    <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center text-3xl font-bold mb-6">
+                      <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      </svg>
+                    </div>
+                    <h3 className="text-2xl font-heading-bold mb-4 text-center">Report & Block</h3>
+                    <p className="text-center text-sm opacity-90 leading-relaxed font-body">Advanced safety features to report inappropriate behavior and maintain a respectful environment.</p>
+                  </div>
+
+                  {/* Default Content */}
+                  <div className="group-hover:opacity-0 transition-all duration-300 flex flex-col justify-between h-full">
+                    {/* Centered Icon */}
+                    <div className="flex-1 flex items-center justify-center">
+                      <div className="w-20 h-20 bg-[#000934] rounded-full flex items-center justify-center">
+                        <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                      </div>
+                    </div>
+                    {/* Bottom Heading */}
+                    <div className="text-center">
+                      <h3 className="text-xl font-heading text-[#000934]">Report & Block</h3>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Feature 4 */}
+                <div className="group bg-[#FDF6E3] backdrop-blur-lg rounded-3xl p-8 border border-white/20 transition-all duration-300 transform hover:-translate-y-2 relative overflow-hidden h-64 flex flex-col justify-between">
+                  {/* Red Overlay on Hover */}
+                  <div className="absolute inset-0 bg-[#D53840]/90 opacity-0 group-hover:opacity-100 transition-all duration-300 rounded-3xl flex flex-col items-center justify-center text-white p-8">
+                    <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center text-3xl font-bold mb-6">
+                      <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9v-9m0-9v9" />
+                      </svg>
+                    </div>
+                    <h3 className="text-2xl font-heading-bold mb-4 text-center">Campus & Global Match</h3>
+                    <p className="text-center text-sm opacity-90 leading-relaxed font-body">Choose to connect with students from your campus or explore connections worldwide.</p>
+                  </div>
+
+                  {/* Default Content */}
+                  <div className="group-hover:opacity-0 transition-all duration-300 flex flex-col justify-between h-full">
+                    {/* Centered Icon */}
+                    <div className="flex-1 flex items-center justify-center">
+                      <div className="w-20 h-20 bg-[#000934] rounded-full flex items-center justify-center">
+                        <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9v-9m0-9v9" />
+                        </svg>
+                      </div>
+                    </div>
+                    {/* Bottom Heading */}
+                    <div className="text-center">
+                      <h3 className="text-xl font-heading text-[#000934]">Campus & Global Match</h3>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Feature 5 */}
+                <div className="group bg-[#FDF6E3] backdrop-blur-lg rounded-3xl p-8 border border-white/20 transition-all duration-300 transform hover:-translate-y-2 relative overflow-hidden h-64 flex flex-col justify-between">
+
+                  {/* Red Overlay on Hover */}
+                  <div className="absolute inset-0 bg-[#D53840]/90 opacity-0 group-hover:opacity-100 transition-all duration-300 rounded-3xl flex flex-col items-center justify-center text-white p-8">
+                    <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center text-3xl font-bold mb-6">
+                      <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 11c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm0 0c-3.314 0-6 2.686-6 6v1h12v-1c0-3.314-2.686-6-6-6z"
+                        />
+                      </svg>
+                    </div>
+                    <h3 className="text-2xl font-heading-bold mb-4 text-center">Safe Environment</h3>
+                    <p className="text-center text-sm opacity-90 leading-relaxed font-body">
+                      A student-only platform designed to keep conversations respectful, secure, and comfortable for everyone.
+                    </p>
+                  </div>
+
+                  {/* Default Content */}
+                  <div className="group-hover:opacity-0 transition-all duration-300 flex flex-col justify-between h-full">
+
+                    {/* Centered Icon */}
+                    <div className="flex-1 flex items-center justify-center">
+                      <div className="w-20 h-20 bg-[#000934] rounded-full flex items-center justify-center">
+                        <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M12 11c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm0 0c-3.314 0-6 2.686-6 6v1h12v-1c0-3.314-2.686-6-6-6z"
+                          />
+                        </svg>
+                      </div>
+                    </div>
+
+                    {/* Bottom Heading */}
+                    <div className="text-center">
+                      <h3 className="text-xl font-heading text-[#000934]">Safe Environment</h3>
+                    </div>
+
+                  </div>
+                </div>
+
+                {/* Feature 6 */}
+                <div className="group bg-[#FDF6E3] backdrop-blur-lg rounded-3xl p-8 border border-white/20 transition-all duration-300 transform hover:-translate-y-2 relative overflow-hidden h-64 flex flex-col justify-between">
+                  {/* Red Overlay on Hover */}
+                  <div className="absolute inset-0 bg-[#D53840]/90 opacity-0 group-hover:opacity-100 transition-all duration-300 rounded-3xl flex flex-col items-center justify-center text-white p-8">
+                    <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center text-3xl font-bold mb-6">
+                      <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+                      </svg>
+                    </div>
+                    <h3 className="text-2xl font-heading-bold mb-4 text-center">Real Connections</h3>
+                    <p className="text-center text-sm opacity-90 leading-relaxed font-body">Build meaningful relationships with fellow students who share your academic journey.</p>
+                  </div>
+
+                  {/* Default Content */}
+                  <div className="group-hover:opacity-0 transition-all duration-300 flex flex-col justify-between h-full">
+                    {/* Centered Icon */}
+                    <div className="flex-1 flex items-center justify-center">
+                      <div className="w-20 h-20 bg-[#000934] rounded-full flex items-center justify-center">
+                        <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+                        </svg>
+                      </div>
+                    </div>
+                    {/* Bottom Heading */}
+                    <div className="text-center">
+                      <h3 className="text-xl font-heading text-[#000934]">Real Connections</h3>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* About Section */}
+        <section id="about" className="py-20 bg-[#E6DDD4] relative">
+          {/* Solid background overlay to hide global background */}
+          <div className="absolute inset-0 bg-[#E6DDD4]"></div>
+          <div className="relative z-10">
+            <div className="max-w-6xl mx-auto px-8">
+              <div className="grid lg:grid-cols-2 gap-16 items-center">
+                <div>
+                  <h2 className="text-5xl font-heading-bold text-[#000934] mb-8">About CampusCam</h2>
+
+                  <div className="space-y-6 text-lg text-gray-700 leading-relaxed font-body">
+                    <p>
+                      <span className="font-body-medium text-[#D53840]">Built only for students.</span> CampusCam is the exclusive video chat platform designed specifically for university and college students worldwide.
+                    </p>
+
+                    <p>
+                      <span className="font-body-medium text-[#D53840]">No bots, no fake profiles.</span> Every user is verified through their university email address, ensuring authentic connections with real students.
+                    </p>
+
+                    <p>
+                      <span className="font-body-medium text-[#D53840]">Real conversations.</span> Connect with students from your own university or explore diverse perspectives from campuses around the globe.
+                    </p>
+
+                    <p>
+                      <span className="font-body-medium text-[#D53840]">Safer than open random chat apps.</span> Our student-only environment creates a trusted space for meaningful academic and social connections.
+                    </p>
+                  </div>
+
+                  <div className="mt-8 flex flex-wrap gap-4">
+                    <div className="flex items-center space-x-2 bg-white/60 backdrop-blur-sm px-4 py-3 rounded-2xl border border-white/20">
+                      <div className="w-4 h-4 bg-green-500 rounded-full"></div>
+                      <span className="font-body-medium text-[#000934]">University Verified</span>
+                    </div>
+                    <div className="flex items-center space-x-2 bg-white/60 backdrop-blur-sm px-4 py-3 rounded-2xl border border-white/20">
+                      <div className="w-4 h-4 bg-[#D53840] rounded-full"></div>
+                      <span className="font-body-medium text-[#000934]">Student-Only</span>
+                    </div>
+                    <div className="flex items-center space-x-2 bg-white/60 backdrop-blur-sm px-4 py-3 rounded-2xl border border-white/20">
+                      <div className="w-4 h-4 bg-blue-500 rounded-full"></div>
+                      <span className="font-body-medium text-[#000934]">Safe & Secure</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="relative">
+                  <div className="grid grid-cols-2 gap-6">
+                    <div className="space-y-6">
+                      <div className="bg-white/80 backdrop-blur-lg rounded-3xl p-6 shadow-xl border border-white/20 transform rotate-3 hover:rotate-0 transition-transform duration-500">
+                        <div className="w-full h-40 bg-gradient-to-br from-[#D53840]/20 to-[#000934]/20 rounded-2xl flex items-center justify-center mb-4">
+                          <svg className="w-16 h-16 text-[#000934]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                          </svg>
+                        </div>
+                        <p className="text-center text-[#000934] font-semibold">Study Groups</p>
+                      </div>
+
+                      <div className="bg-white/80 backdrop-blur-lg rounded-3xl p-6 shadow-xl border border-white/20 transform -rotate-2 hover:rotate-0 transition-transform duration-500">
+                        <div className="w-full h-40 bg-gradient-to-br from-[#000934]/20 to-[#D53840]/20 rounded-2xl flex items-center justify-center mb-4">
+                          <svg className="w-16 h-16 text-[#D53840]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                          </svg>
+                        </div>
+                        <p className="text-center text-[#000934] font-semibold">Campus Life</p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-6 mt-12">
+                      <div className="bg-white/80 backdrop-blur-lg rounded-3xl p-6 shadow-xl border border-white/20 transform rotate-2 hover:rotate-0 transition-transform duration-500">
+                        <div className="w-full h-40 bg-gradient-to-br from-[#D53840]/20 to-[#000934]/20 rounded-2xl flex items-center justify-center mb-4">
+                          <svg className="w-16 h-16 text-[#000934]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9v-9m0-9v9" />
+                          </svg>
+                        </div>
+                        <p className="text-center text-[#000934] font-semibold">Global Network</p>
+                      </div>
+
+                      <div className="bg-white/80 backdrop-blur-lg rounded-3xl p-6 shadow-xl border border-white/20 transform -rotate-1 hover:rotate-0 transition-transform duration-500">
+                        <div className="w-full h-40 bg-gradient-to-br from-[#000934]/20 to-[#D53840]/20 rounded-2xl flex items-center justify-center mb-4">
+                          <svg className="w-16 h-16 text-[#D53840]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                          </svg>
+                        </div>
+                        <p className="text-center text-[#000934] font-semibold">Verified Safe</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Contact Section */}
+        <section id="contact" className="relative py-16 overflow-hidden">
+          {/* Background Image */}
+          <div className="absolute inset-0">
+            <div
+              className="w-full h-full bg-cover bg-center bg-no-repeat"
+              style={{
+                backgroundImage: `url('/footcopy.jpg')`
+              }}
+            >
+              {/* Overlay for better text readability */}
+              <div className="absolute inset-0 bg-black/20"></div>
+            </div>
+          </div>
+
+          {/* Diagonal Red Overlay - Made Wider */}
+          <div className="absolute inset-0">
+            <div className="absolute inset-0 bg-[#D53840]/85 transform skew-x-12 origin-top-right w-3/5 h-full ml-auto"></div>
+          </div>
+
+          <div className="relative z-10 max-w-7xl mx-auto px-8 h-full flex items-center">
+            <div className="w-full flex justify-end min-h-[500px]">
+              {/* Contact Form - Positioned with margin from right */}
+              <div className="w-full max-w-lg mr-8">
+                <div className="text-center mb-8">
+                  <h2 className="text-4xl font-heading text-white mb-4">Contact Us</h2>
+                  <p className="text-lg text-white/90 font-body">
+                    Have questions? We're here to help you connect with fellow students safely.
+                  </p>
+                </div>
+
+                <form className="space-y-6">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-white font-body-medium mb-2">Name</label>
+                      <input
+                        type="text"
+                        className="w-full px-4 py-3 bg-white/20 backdrop-blur-sm border border-white/30 rounded-xl text-white placeholder-white/70 focus:outline-none focus:ring-2 focus:ring-white focus:border-transparent"
+                        placeholder="Your name"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-white font-body-medium mb-2">Email</label>
+                      <input
+                        type="email"
+                        className="w-full px-4 py-3 bg-white/20 backdrop-blur-sm border border-white/30 rounded-xl text-white placeholder-white/70 focus:outline-none focus:ring-2 focus:ring-white focus:border-transparent"
+                        placeholder="your@university.edu"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-white font-body-medium mb-2">Subject</label>
+                    <input
+                      type="text"
+                      className="w-full px-4 py-3 bg-white/20 backdrop-blur-sm border border-white/30 rounded-xl text-white placeholder-white/70 focus:outline-none focus:ring-2 focus:ring-white focus:border-transparent"
+                      placeholder="How can we help?"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-white font-body-medium mb-2">Message</label>
+                    <textarea
+                      rows={4}
+                      className="w-full px-4 py-3 bg-white/20 backdrop-blur-sm border border-white/30 rounded-xl text-white placeholder-white/70 focus:outline-none focus:ring-2 focus:ring-white focus:border-transparent resize-none"
+                      placeholder="Tell us about your question or feedback..."
+                    ></textarea>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full px-8 py-4 bg-white/20 backdrop-blur-sm border border-white/30 text-white rounded-2xl hover:bg-white/30 transition-all duration-300 font-semibold text-lg shadow-xl hover:shadow-2xl transform hover:-translate-y-1"
+                  >
+                    Send Message
+                  </button>
+                </form>
+
+                {/* Contact Info */}
+                <div className="mt-8 grid grid-cols-3 gap-4 text-center">
+                  <div className="text-white">
+                    <div className="w-10 h-10 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center mx-auto mb-2">
+                      <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                      </svg>
+                    </div>
+                    <p className="text-xs font-semibold">Email Support</p>
+                    <p className="text-xs text-white/80">support@campuscam.com</p>
+                  </div>
+
+                  <div className="text-white">
+                    <div className="w-10 h-10 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center mx-auto mb-2">
+                      <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                    <p className="text-xs font-semibold">Response Time</p>
+                    <p className="text-xs text-white/80">Within 24 hours</p>
+                  </div>
+
+                  <div className="text-white">
+                    <div className="w-10 h-10 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center mx-auto mb-2">
+                      <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 515.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                      </svg>
+                    </div>
+                    <p className="text-xs font-semibold">Student Support</p>
+                    <p className="text-xs text-white/80">Dedicated to students</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Final CTA Section */}
+        <section className="py-20 bg-[#E6DDD4] relative">
+          {/* Solid background overlay to hide global background */}
+          <div className="absolute inset-0 bg-[#E6DDD4]"></div>
+          <div className="relative z-10">
+            <div className="max-w-4xl mx-auto text-center px-8">
+              <div className="bg-white/80 backdrop-blur-lg rounded-3xl p-12 shadow-2xl border border-white/20">
+                <h2 className="text-4xl font-heading text-[#000934] mb-6">
+                  Ready to Connect with Real Students?
+                </h2>
+                <p className="text-xl text-gray-700 mb-8 max-w-2xl mx-auto font-body">
+                  Join thousands of verified students already making meaningful connections on CampusCam.
+                </p>
+
+                <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                  <Link
+                    href="/register"
+                    className="group px-8 py-4 bg-[#000934] text-white rounded-2xl hover:bg-[#000934]/90 transition-all duration-300 font-semibold text-lg shadow-xl hover:shadow-2xl transform hover:-translate-y-1 flex items-center justify-center space-x-2"
+                  >
+                    <span>Get Started Now</span>
+                    <svg className="w-5 h-5 group-hover:translate-x-1 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                    </svg>
+                  </Link>
+
+                  <Link
+                    href="/login"
+                    className="px-8 py-4 border-2 border-[#D53840] text-[#D53840] rounded-2xl hover:bg-[#D53840] hover:text-white transition-all duration-300 font-semibold text-lg flex items-center justify-center"
+                  >
+                    Already have an account?
+                  </Link>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div >
+  );
+}

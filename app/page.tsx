@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { io, Socket } from 'socket.io-client';
 import { ClientToServerEvents, ServerToClientEvents } from './types';
+import Home from './home';
 
 interface User {
   id: string;
@@ -15,7 +16,7 @@ interface User {
 
 type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'searching' | 'matched' | 'in-call';
 
-export default function Home() {
+export default function Page() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [socket, setSocket] = useState<Socket<ServerToClientEvents, ClientToServerEvents> | null>(null);
@@ -34,8 +35,7 @@ export default function Home() {
     if (typeof window !== 'undefined' && window.localStorage) {
       checkAuthentication();
     } else {
-      // If localStorage is not available, redirect to login
-      router.replace('/login');
+      setIsLoading(false);
     }
   }, []);
 
@@ -119,8 +119,8 @@ export default function Home() {
       console.log('Checking authentication, token:', token ? token.substring(0, 20) + '...' : 'null'); // Debug log
       
       if (!token) {
-        console.log('No token found, redirecting to login'); // Debug log
-        router.replace('/login');
+        console.log('No token found, showing home page'); // Debug log
+        setIsLoading(false);
         return;
       }
 
@@ -136,9 +136,9 @@ export default function Home() {
       console.log('Profile API response:', response.status, response.ok); // Debug log
 
       if (!response.ok) {
-        console.log('Profile API failed, removing token and redirecting to login'); // Debug log
+        console.log('Profile API failed, removing token and showing home page'); // Debug log
         localStorage.removeItem('authToken');
-        router.replace('/login');
+        setIsLoading(false);
         return;
       }
 
@@ -149,14 +149,12 @@ export default function Home() {
         console.log('Authentication successful, setting user'); // Debug log
         setUser(data.data.user);
       } else {
-        console.log('Profile data indicates failure, redirecting to login'); // Debug log
+        console.log('Profile data indicates failure, showing home page'); // Debug log
         localStorage.removeItem('authToken');
-        router.replace('/login');
       }
     } catch (error) {
       console.error('Authentication check failed:', error);
       localStorage.removeItem('authToken');
-      router.replace('/login');
     } finally {
       setIsLoading(false);
     }
@@ -376,18 +374,26 @@ export default function Home() {
     );
   }
 
+  // If user is not authenticated, show the home page
   if (!user) {
-    return null; // Will redirect to login
+    return <Home />;
   }
 
+  // If user is authenticated, show the matching dashboard
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <header className="bg-white shadow-sm border-b">
         <div className="max-w-4xl mx-auto px-4 py-4 flex justify-between items-center">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">University Video Chat</h1>
-            <p className="text-sm text-gray-600">Welcome, {user.email}</p>
+          <div className="flex items-center space-x-4">
+            <img 
+              src="/logohero.png" 
+              alt="Logo" 
+              className="h-10 w-auto"
+            />
+            <div>
+              <p className="text-sm text-gray-600">Welcome, {user.email}</p>
+            </div>
           </div>
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-2">
