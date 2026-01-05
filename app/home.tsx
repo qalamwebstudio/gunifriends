@@ -923,7 +923,7 @@ export default function Home() {
           <div className="absolute inset-0 bg-[#E6DDD4]"></div>
           <div className="relative z-10">
             <div className="max-w-4xl mx-auto text-center px-8">
-              <div className="final-cta-card bg-white/80 backdrop-blur-lg rounded-3xl p-12 shadow-2xl border border-white/20">
+              <div className="final-cta-card bg-white/80 backdrop-blur-lg rounded-3xl p-12 border border-white/20 shadow-[0_20px_50px_rgba(213,56,64,0.3)]">
                 <h2 className="text-4xl font-heading text-[#000934] mb-6">
                   Ready to Connect with Real Students?
                 </h2>
@@ -955,8 +955,8 @@ export default function Home() {
         </section>
 
         {/* Footer */}
-        <footer className="py-6 bg-[#D53840] relative">
-          <div className="absolute inset-0 bg-[#D53840]"></div>
+        <footer className="py-6 bg-slate-800 relative">
+          <div className="absolute inset-0 bg-slate-800"></div>
           <div className="relative z-10">
             <div className="max-w-6xl mx-auto px-8 text-center">
               <p className="text-white/80 font-body">

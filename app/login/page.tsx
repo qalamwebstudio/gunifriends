@@ -48,17 +48,21 @@ export default function LoginPage() {
       y: 50,
       scale: 0.9
     });
-    gsap.set(leftSectionRef.current?.children, {
-      opacity: 0,
-      y: 30
-    });
+    if (leftSectionRef.current?.children) {
+      gsap.set(leftSectionRef.current.children, {
+        opacity: 0,
+        y: 30
+      });
+    }
     gsap.set(overlayRef.current, {
       opacity: 0
     });
-    gsap.set(rightContentRef.current?.children, {
-      opacity: 0,
-      y: 20
-    });
+    if (rightContentRef.current?.children) {
+      gsap.set(rightContentRef.current.children, {
+        opacity: 0,
+        y: 20
+      });
+    }
 
     // Animation sequence
     tl
@@ -84,7 +88,7 @@ export default function LoginPage() {
       }, "-=0.4")
       
       // 3. Left section content animates in
-      .to(leftSectionRef.current?.children, {
+      .to(leftSectionRef.current?.children || [], {
         opacity: 1,
         y: 0,
         duration: 0.6,
@@ -100,7 +104,7 @@ export default function LoginPage() {
       }, "-=0.3")
       
       // 5. Right section content appears
-      .to(rightContentRef.current?.children, {
+      .to(rightContentRef.current?.children || [], {
         opacity: 1,
         y: 0,
         duration: 0.6,
