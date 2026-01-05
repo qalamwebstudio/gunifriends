@@ -4,6 +4,10 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { io, Socket } from 'socket.io-client';
 import { ClientToServerEvents, ServerToClientEvents } from './types';
+import { 
+  CONNECTION_CONFIG,
+  SOCKET_TIMEOUT_MS
+} from './lib/connection-config';
 
 interface User {
   id: string;
@@ -187,7 +191,7 @@ export default function Home() {
         token
       },
       transports: ['polling', 'websocket'], // Try polling first, then websocket
-      timeout: 20000,
+      timeout: SOCKET_TIMEOUT_MS, // Updated: 30s timeout from centralized config
       forceNew: true,
       reconnection: true,
       reconnectionDelay: 1000,

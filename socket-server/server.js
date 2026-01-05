@@ -4,6 +4,9 @@ const jwt = require('jsonwebtoken');
 const { MongoClient } = require('mongodb');
 require('dotenv').config();
 
+// Import connection configuration
+const { CONNECTION_CONFIG, getSessionTimeout } = require('./connection-config');
+
 // Configuration
 const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
@@ -22,7 +25,7 @@ console.log('🌐 CORS Origins:', CORS_ORIGINS);
 // Create HTTP server
 const server = createServer();
 
-// Create Socket.io server with CORS
+// Create Socket.io server with CORS and updated configuration
 const io = new Server(server, {
   cors: {
     origin: CORS_ORIGINS,
@@ -32,8 +35,8 @@ const io = new Server(server, {
   },
   transports: ['websocket', 'polling'],
   allowEIO3: true,
-  pingTimeout: 60000,
-  pingInterval: 25000
+  pingTimeout: CONNECTION_CONFIG.socketPingTimeout, // Updated: 60s ping timeout
+  pingInterval: CONNECTION_CONFIG.socketPingInterval // Updated: 25s ping interval
 });
 
 // MongoDB connection
@@ -100,20 +103,41 @@ io.on('connection', (socket) => {
   const existingSession = activeSessions.get(socket.userId);
   
   if (existingSession) {
-    // Update existing session with new socket ID
+    // Update existing session with new socket ID and enhanced fields for connection persistence
     console.log(`🔄 Updating socket ID for ${socket.userEmail}: ${existingSession.socketId} → ${socket.id}`);
     existingSession.socketId = socket.id;
     existingSession.connectedAt = new Date();
+    existingSession.lastActivity = new Date();
+    existingSession.lastHeartbeat = new Date();
+    // Preserve existing isInActiveCall status and other fields
+    if (!existingSession.hasOwnProperty('isInActiveCall')) {
+      existingSession.isInActiveCall = false;
+    }
+    if (!existingSession.hasOwnProperty('connectionQuality')) {
+      existingSession.connectionQuality = 'good';
+    }
+    if (!existingSession.hasOwnProperty('isVisible')) {
+      existingSession.isVisible = true; // Default to visible on reconnection
+    }
+    if (!existingSession.hasOwnProperty('isOnline')) {
+      existingSession.isOnline = true; // Default to online on socket connection
+    }
     activeSessions.set(socket.userId, existingSession);
   } else {
-    // Create new session
+    // Create new session with enhanced fields for connection persistence
     activeSessions.set(socket.userId, {
       socketId: socket.id,
       userId: socket.userId,
       email: socket.userEmail,
       university: socket.university,
       status: 'connected',
-      connectedAt: new Date()
+      connectedAt: new Date(),
+      lastActivity: new Date(),
+      lastHeartbeat: new Date(),
+      connectionQuality: 'good',
+      isInActiveCall: false,
+      isVisible: true, // Track tab visibility (Requirements 5.2)
+      isOnline: true   // Track network status (Requirements 5.1, 5.3)
     });
   }
 
@@ -263,22 +287,146 @@ io.on('connection', (socket) => {
         session.status = 'connected';
         session.partnerId = null;
         session.roomId = null;
+        session.isInActiveCall = false; // Reset active call flag
         activeSessions.set(socket.userId, session);
         
         partnerSession.status = 'connected';
         partnerSession.partnerId = null;
         partnerSession.roomId = null;
+        partnerSession.isInActiveCall = false; // Reset active call flag
         activeSessions.set(session.partnerId, partnerSession);
       }
     }
   });
 
-  // Handle heartbeat
-  socket.on('heartbeat', () => {
+  // Handle video call start confirmation
+  socket.on('video-call-started', () => {
     const session = activeSessions.get(socket.userId);
     if (session) {
+      session.isInActiveCall = true;
+      session.status = 'in-call';
       session.lastActivity = new Date();
+      session.lastHeartbeat = new Date();
       activeSessions.set(socket.userId, session);
+      
+      console.log(`📹 Video call started for ${session.email}`);
+      
+      // Notify partner that video call has started
+      if (session.partnerId) {
+        const partnerSession = activeSessions.get(session.partnerId);
+        if (partnerSession && partnerSession.socketId) {
+          io.to(partnerSession.socketId).emit('partner-video-started');
+        }
+      }
+    }
+  });
+
+  // Handle WebRTC connection state changes
+  socket.on('webrtc-connection-state', (data) => {
+    const session = activeSessions.get(socket.userId);
+    if (session) {
+      const { connectionState, iceConnectionState } = data;
+      
+      // Update connection quality based on connection state
+      if (connectionState === 'connected' || iceConnectionState === 'connected') {
+        session.connectionQuality = 'good';
+        session.isInActiveCall = true;
+        session.lastActivity = new Date();
+        session.lastHeartbeat = new Date();
+      } else if (connectionState === 'connecting' || iceConnectionState === 'checking') {
+        session.connectionQuality = 'fair';
+      } else if (connectionState === 'disconnected' || iceConnectionState === 'disconnected') {
+        session.connectionQuality = 'poor';
+        // Don't immediately set isInActiveCall to false - allow for reconnection
+      } else if (connectionState === 'failed' || iceConnectionState === 'failed') {
+        session.connectionQuality = 'poor';
+        session.isInActiveCall = false;
+      }
+      
+      activeSessions.set(socket.userId, session);
+      
+      console.log(`🔗 WebRTC state update for ${session.email}: ${connectionState}/${iceConnectionState}, quality: ${session.connectionQuality}, inCall: ${session.isInActiveCall}`);
+    }
+  });
+
+  // Handle enhanced heartbeat with activity tracking and network status
+  socket.on('heartbeat', (data = {}) => {
+    const session = activeSessions.get(socket.userId);
+    if (session) {
+      const now = new Date();
+      session.lastActivity = now;
+      session.lastHeartbeat = now;
+      
+      // Update connection quality if provided
+      if (data.connectionQuality) {
+        session.connectionQuality = data.connectionQuality;
+      }
+      
+      // Update active call status if provided
+      if (data.hasOwnProperty('isInActiveCall')) {
+        session.isInActiveCall = data.isInActiveCall;
+      }
+      
+      // Handle network recovery status (Requirements 5.1, 5.3)
+      if (data.networkRecovered) {
+        console.log(`🌐 Network recovered for ${session.email}`);
+        session.connectionQuality = 'good'; // Reset quality on network recovery
+        
+        // Notify partner about network recovery
+        if (session.partnerId) {
+          const partnerSession = activeSessions.get(session.partnerId);
+          if (partnerSession && partnerSession.socketId) {
+            io.to(partnerSession.socketId).emit('partner-network-recovered', {
+              partnerId: socket.userId
+            });
+          }
+        }
+      }
+      
+      // Handle visibility status for better session management (Requirements 5.2)
+      if (data.hasOwnProperty('isVisible')) {
+        session.isVisible = data.isVisible;
+        
+        if (!data.isVisible && session.isInActiveCall) {
+          console.log(`👁️ User ${session.email} tab became hidden during call`);
+        } else if (data.isVisible && session.isInActiveCall) {
+          console.log(`👁️ User ${session.email} tab became visible during call`);
+        }
+      }
+      
+      // Handle online status for network interruption tracking (Requirements 5.1)
+      if (data.hasOwnProperty('isOnline')) {
+        const wasOffline = session.isOnline === false;
+        session.isOnline = data.isOnline;
+        
+        if (wasOffline && data.isOnline) {
+          console.log(`🌐 User ${session.email} came back online`);
+          
+          // Notify partner about user coming back online
+          if (session.partnerId) {
+            const partnerSession = activeSessions.get(session.partnerId);
+            if (partnerSession && partnerSession.socketId) {
+              io.to(partnerSession.socketId).emit('partner-came-online', {
+                partnerId: socket.userId
+              });
+            }
+          }
+        } else if (!data.isOnline) {
+          console.log(`🌐 User ${session.email} went offline`);
+          session.connectionQuality = 'poor';
+        }
+      }
+      
+      activeSessions.set(socket.userId, session);
+      
+      // Send enhanced heartbeat acknowledgment with session info
+      socket.emit('heartbeat-ack', {
+        timestamp: now,
+        sessionActive: true,
+        partnerId: session.partnerId,
+        roomId: session.roomId,
+        connectionQuality: session.connectionQuality
+      });
     }
   });
 
@@ -288,7 +436,7 @@ io.on('connection', (socket) => {
     handleDisconnection(socket);
   });
 
-  // Handle session restore request
+  // Enhanced session restore request with better state validation (Requirements 5.4, 5.5)
   socket.on('request-session-restore', () => {
     console.log(`🔄 Session restore requested by ${socket.userEmail}`);
     const session = activeSessions.get(socket.userId);
@@ -298,29 +446,86 @@ io.on('connection', (socket) => {
         status: session.status,
         partnerId: session.partnerId,
         roomId: session.roomId,
-        hasPartner: !!session.partnerId
+        hasPartner: !!session.partnerId,
+        isInActiveCall: session.isInActiveCall,
+        lastActivity: session.lastActivity
       });
       
       if (session.partnerId && session.roomId) {
         const partnerSession = activeSessions.get(session.partnerId);
         console.log(`📊 Partner session exists: ${!!partnerSession}`);
         
-        socket.emit('session-restored', {
-          partnerId: session.partnerId,
-          roomId: session.roomId,
-          wasReconnected: true
-        });
-        console.log(`✅ Session restored for ${socket.userEmail}`);
+        if (partnerSession) {
+          // Validate that partner session is still valid and recent
+          const partnerLastActivity = new Date(partnerSession.lastActivity);
+          const timeSincePartnerActivity = Date.now() - partnerLastActivity.getTime();
+          const maxInactivityTime = 15 * 60 * 1000; // 15 minutes
+          
+          if (timeSincePartnerActivity < maxInactivityTime) {
+            // Notify partner about session restoration attempt
+            if (partnerSession.socketId) {
+              io.to(partnerSession.socketId).emit('partner-attempting-restore', {
+                partnerId: socket.userId,
+                partnerEmail: socket.userEmail
+              });
+            }
+            
+            socket.emit('session-restored', {
+              partnerId: session.partnerId,
+              roomId: session.roomId,
+              wasReconnected: true,
+              partnerLastSeen: partnerLastActivity,
+              sessionAge: Date.now() - new Date(session.connectedAt).getTime()
+            });
+            
+            // Update session status to indicate restoration
+            session.status = 'matched';
+            session.lastActivity = new Date();
+            session.lastHeartbeat = new Date();
+            activeSessions.set(socket.userId, session);
+            
+            console.log(`✅ Session restored for ${socket.userEmail}`);
+          } else {
+            console.log(`❌ Session restore failed for ${socket.userEmail}: partner inactive for ${Math.round(timeSincePartnerActivity/1000)}s`);
+            
+            // Clean up stale partner session
+            activeSessions.delete(session.partnerId);
+            
+            // Reset current session
+            session.partnerId = null;
+            session.roomId = null;
+            session.status = 'connected';
+            session.isInActiveCall = false;
+            activeSessions.set(socket.userId, session);
+            
+            socket.emit('session-restore-failed', {
+              reason: 'Partner session expired due to inactivity'
+            });
+          }
+        } else {
+          console.log(`❌ Session restore failed for ${socket.userEmail}: partner session not found`);
+          
+          // Reset session since partner is gone
+          session.partnerId = null;
+          session.roomId = null;
+          session.status = 'connected';
+          session.isInActiveCall = false;
+          activeSessions.set(socket.userId, session);
+          
+          socket.emit('session-restore-failed', {
+            reason: 'Partner session no longer exists'
+          });
+        }
       } else {
         console.log(`❌ Session restore failed for ${socket.userEmail}: incomplete session data`);
         socket.emit('session-restore-failed', {
-          reason: 'No active session found'
+          reason: 'No active session found to restore'
         });
       }
     } else {
       console.log(`❌ Session restore failed for ${socket.userEmail}: no session found`);
       socket.emit('session-restore-failed', {
-        reason: 'No active session found'
+        reason: 'No user session found'
       });
     }
   });
@@ -366,11 +571,13 @@ io.on('connection', (socket) => {
         session.status = 'connected';
         session.partnerId = null;
         session.roomId = null;
+        session.isInActiveCall = false; // Reset active call flag
         activeSessions.set(socket.userId, session);
         
         partnerSession.status = 'connected';
         partnerSession.partnerId = null;
         partnerSession.roomId = null;
+        partnerSession.isInActiveCall = false; // Reset active call flag
         activeSessions.set(session.partnerId, partnerSession);
       }
     }
@@ -434,12 +641,14 @@ function createMatch(userId1, userId2) {
   user1Session.partnerId = userId2;
   user1Session.roomId = roomId;
   user1Session.lastActivity = new Date(); // Update activity timestamp
+  user1Session.isInActiveCall = false; // Will be set to true when video call actually starts
   activeSessions.set(userId1, user1Session);
 
   user2Session.status = 'matched';
   user2Session.partnerId = userId1;
   user2Session.roomId = roomId;
   user2Session.lastActivity = new Date(); // Update activity timestamp
+  user2Session.isInActiveCall = false; // Will be set to true when video call actually starts
   activeSessions.set(userId2, user2Session);
 
   console.log(`📊 After match - User1 session:`, {
@@ -500,6 +709,7 @@ function handleDisconnection(socket) {
       partnerSession.status = 'connected';
       partnerSession.partnerId = null;
       partnerSession.roomId = null;
+      partnerSession.isInActiveCall = false; // Reset active call flag
       activeSessions.set(session.partnerId, partnerSession);
     }
   }
@@ -516,14 +726,45 @@ function generateId() {
   return Math.random().toString(36).substr(2, 9);
 }
 
-// Cleanup inactive sessions (run every 5 minutes)
+// Enhanced cleanup for inactive sessions with active call consideration
 setInterval(() => {
   const now = new Date();
-  const TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+  // Updated: Use centralized configuration for timeout values (Requirements 4.4)
+  const HEARTBEAT_TIMEOUT_MS = CONNECTION_CONFIG.sessionInactivityTimeout; // 10 minutes for heartbeat timeout
+  const INACTIVE_CALL_TIMEOUT_MS = CONNECTION_CONFIG.activeCallInactivityTimeout; // 30 minutes for inactive calls
 
   for (const [userId, session] of activeSessions.entries()) {
-    if (session.lastActivity && (now - session.lastActivity) > TIMEOUT_MS) {
-      console.log(`⏰ Session timeout: ${session.email}`);
+    let shouldTimeout = false;
+    let timeoutReason = '';
+    
+    // Check if session has required fields (for backward compatibility)
+    if (!session.lastHeartbeat) {
+      session.lastHeartbeat = session.lastActivity || session.connectedAt;
+    }
+    if (!session.hasOwnProperty('isInActiveCall')) {
+      session.isInActiveCall = false;
+    }
+    
+    // Calculate time since last heartbeat
+    const timeSinceHeartbeat = now - (session.lastHeartbeat || session.connectedAt);
+    
+    if (session.isInActiveCall) {
+      // For users in active calls, use longer timeout and only check heartbeat
+      if (timeSinceHeartbeat > INACTIVE_CALL_TIMEOUT_MS) {
+        shouldTimeout = true;
+        timeoutReason = 'No heartbeat during active call';
+      }
+    } else {
+      // For users not in active calls, use standard heartbeat timeout
+      if (timeSinceHeartbeat > HEARTBEAT_TIMEOUT_MS) {
+        shouldTimeout = true;
+        timeoutReason = 'Heartbeat timeout';
+      }
+    }
+    
+    if (shouldTimeout) {
+      console.log(`⏰ Session timeout: ${session.email} (${timeoutReason})`);
+      console.log(`📊 Session details: isInActiveCall=${session.isInActiveCall}, timeSinceHeartbeat=${Math.round(timeSinceHeartbeat/1000)}s`);
       
       // Remove from matching pool
       matchingPool.delete(userId);
@@ -533,6 +774,13 @@ setInterval(() => {
         const partnerSession = activeSessions.get(session.partnerId);
         if (partnerSession) {
           io.to(partnerSession.socketId).emit('partner-timeout');
+          
+          // Reset partner session
+          partnerSession.status = 'connected';
+          partnerSession.partnerId = null;
+          partnerSession.roomId = null;
+          partnerSession.isInActiveCall = false;
+          activeSessions.set(session.partnerId, partnerSession);
         }
       }
       
@@ -540,7 +788,7 @@ setInterval(() => {
       activeSessions.delete(userId);
     }
   }
-}, 5 * 60 * 1000);
+}, CONNECTION_CONFIG.sessionCleanupInterval); // Updated: Run every 2 minutes for more responsive cleanup
 
 // Start server
 async function startServer() {
