@@ -1,8 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import Image from 'next/image';
+import { gsap } from 'gsap';
 import { UniversityEmailValidator } from '../utils/validation';
 import { UNIVERSITY_DOMAINS } from '../types';
 
@@ -32,6 +34,90 @@ export default function RegisterPage() {
   const [errors, setErrors] = useState<FormErrors>({});
   const [isLoading, setIsLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
+
+  // Refs for animation elements
+  const topCircleRef = useRef<HTMLDivElement>(null);
+  const bottomCircleRef = useRef<HTMLDivElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const leftSectionRef = useRef<HTMLDivElement>(null);
+  const rightSectionRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const rightContentRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const tl = gsap.timeline();
+
+    // Set initial states
+    gsap.set([topCircleRef.current, bottomCircleRef.current], {
+      scale: 0,
+      transformOrigin: "center center"
+    });
+    gsap.set(cardRef.current, {
+      opacity: 0,
+      y: 50,
+      scale: 0.9
+    });
+    gsap.set(leftSectionRef.current?.children, {
+      opacity: 0,
+      y: 30
+    });
+    gsap.set(overlayRef.current, {
+      opacity: 0
+    });
+    gsap.set(rightContentRef.current?.children, {
+      opacity: 0,
+      y: 20
+    });
+
+    // Animation sequence
+    tl
+      // 1. Circles animate from corners - faster and closer together
+      .to(topCircleRef.current, {
+        scale: 1,
+        duration: 0.8,
+        ease: "power3.out"
+      })
+      .to(bottomCircleRef.current, {
+        scale: 1,
+        duration: 0.8,
+        ease: "power3.out"
+      }, "-=0.6")
+      
+      // 2. Register card appears
+      .to(cardRef.current, {
+        opacity: 1,
+        y: 0,
+        scale: 1,
+        duration: 0.8,
+        ease: "power2.out"
+      }, "-=0.4")
+      
+      // 3. Left section content animates in
+      .to(leftSectionRef.current?.children, {
+        opacity: 1,
+        y: 0,
+        duration: 0.6,
+        stagger: 0.1,
+        ease: "power2.out"
+      }, "-=0.2")
+      
+      // 4. Right section overlay appears
+      .to(overlayRef.current, {
+        opacity: 1,
+        duration: 0.8,
+        ease: "power2.out"
+      }, "-=0.3")
+      
+      // 5. Right section content appears
+      .to(rightContentRef.current?.children, {
+        opacity: 1,
+        y: 0,
+        duration: 0.6,
+        stagger: 0.15,
+        ease: "power2.out"
+      }, "-=0.4");
+
+  }, []);
 
   const validateForm = (): boolean => {
     const newErrors: FormErrors = {};
@@ -124,36 +210,68 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-          Create your account
-        </h2>
-        <p className="mt-2 text-center text-sm text-gray-600">
-          Join the university video chat community
-        </p>
+    <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4 relative overflow-hidden">
+      {/* Decorative Background Circles - Large and intersecting with card like in reference */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        {/* Massive circle at top left - intersects with card */}
+        <div 
+          ref={topCircleRef}
+          className="absolute -top-64 -left-64 w-[600px] h-[600px] bg-red-500 rounded-full"
+        ></div>
+        {/* Massive circle at bottom right - intersects with card */}
+        <div 
+          ref={bottomCircleRef}
+          className="absolute -bottom-64 -right-64 w-[600px] h-[600px] bg-red-500 rounded-full"
+        ></div>
       </div>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
-          {successMessage && (
-            <div className="mb-4 p-4 bg-green-100 border border-green-400 text-green-700 rounded">
-              {successMessage}
+      {/* Main Card Container */}
+      <div 
+        ref={cardRef}
+        className="relative w-full max-w-4xl bg-white rounded-2xl shadow-2xl overflow-hidden z-10"
+      >
+        <div className="flex flex-col lg:flex-row min-h-[600px]">
+          
+          {/* Left Section - Register Form */}
+          <div 
+            ref={leftSectionRef}
+            className="flex-1 p-8 lg:p-12 flex flex-col justify-center"
+          >
+            {/* Logo and Welcome */}
+            <div className="mb-8 text-center lg:text-left">
+              <div className="mb-6">
+                <Image
+                  src="/logoherored.png"
+                  alt="Logo"
+                  width={120}
+                  height={40}
+                  className="mx-auto lg:mx-0"
+                />
+              </div>
+              <h1 className="text-3xl font-bold text-gray-900 mb-2">Create Your Account</h1>
+              <p className="text-gray-600">Join the university community today</p>
             </div>
-          )}
 
-          {errors.general && (
-            <div className="mb-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded">
-              {errors.general}
-            </div>
-          )}
+            {/* Success Message */}
+            {successMessage && (
+              <div className="mb-6 p-4 bg-green-50 border border-green-200 text-green-700 rounded-lg">
+                {successMessage}
+              </div>
+            )}
 
-          <form className="space-y-6" onSubmit={handleSubmit}>
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-                University Email Address
-              </label>
-              <div className="mt-1">
+            {/* Error Message */}
+            {errors.general && (
+              <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg">
+                {errors.general}
+              </div>
+            )}
+
+            {/* Register Form */}
+            <form className="space-y-5" onSubmit={handleSubmit}>
+              <div>
+                <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
+                  University Email Address
+                </label>
                 <input
                   id="email"
                   name="email"
@@ -162,31 +280,29 @@ export default function RegisterPage() {
                   required
                   value={formData.email}
                   onChange={handleInputChange}
-                  className={`appearance-none block w-full px-3 py-2 border ${
+                  className={`w-full px-4 py-3 border ${
                     errors.email ? 'border-red-300' : 'border-gray-300'
-                  } rounded-md placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
+                  } rounded-lg focus:outline-none focus:ring-2 focus:ring-[#D53840] focus:border-transparent transition-all duration-200 hover:border-gray-400`}
                   placeholder="your.email@gnu.ac.in"
                 />
+                {errors.email && (
+                  <p className="mt-2 text-sm text-red-600">{errors.email}</p>
+                )}
               </div>
-              {errors.email && (
-                <p className="mt-2 text-sm text-red-600">{errors.email}</p>
-              )}
-            </div>
 
-            <div>
-              <label htmlFor="university" className="block text-sm font-medium text-gray-700">
-                University
-              </label>
-              <div className="mt-1">
+              <div>
+                <label htmlFor="university" className="block text-sm font-medium text-gray-700 mb-2">
+                  University
+                </label>
                 <select
                   id="university"
                   name="university"
                   required
                   value={formData.university}
                   onChange={handleInputChange}
-                  className={`appearance-none block w-full px-3 py-2 border ${
+                  className={`w-full px-4 py-3 border ${
                     errors.university ? 'border-red-300' : 'border-gray-300'
-                  } rounded-md placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
+                  } rounded-lg focus:outline-none focus:ring-2 focus:ring-[#D53840] focus:border-transparent transition-all duration-200 hover:border-gray-400`}
                 >
                   <option value="">Select your university</option>
                   {UNIVERSITY_DOMAINS.map((university) => (
@@ -195,17 +311,15 @@ export default function RegisterPage() {
                     </option>
                   ))}
                 </select>
+                {errors.university && (
+                  <p className="mt-2 text-sm text-red-600">{errors.university}</p>
+                )}
               </div>
-              {errors.university && (
-                <p className="mt-2 text-sm text-red-600">{errors.university}</p>
-              )}
-            </div>
 
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700">
-                Password
-              </label>
-              <div className="mt-1">
+              <div>
+                <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
+                  Password
+                </label>
                 <input
                   id="password"
                   name="password"
@@ -214,25 +328,23 @@ export default function RegisterPage() {
                   required
                   value={formData.password}
                   onChange={handleInputChange}
-                  className={`appearance-none block w-full px-3 py-2 border ${
+                  className={`w-full px-4 py-3 border ${
                     errors.password ? 'border-red-300' : 'border-gray-300'
-                  } rounded-md placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
+                  } rounded-lg focus:outline-none focus:ring-2 focus:ring-[#D53840] focus:border-transparent transition-all duration-200 hover:border-gray-400`}
                   placeholder="Enter a strong password"
                 />
+                {errors.password && (
+                  <p className="mt-2 text-sm text-red-600">{errors.password}</p>
+                )}
+                <p className="mt-1 text-xs text-gray-500">
+                  Must be at least 8 characters with uppercase, lowercase, and number
+                </p>
               </div>
-              {errors.password && (
-                <p className="mt-2 text-sm text-red-600">{errors.password}</p>
-              )}
-              <p className="mt-1 text-xs text-gray-500">
-                Must be at least 8 characters with uppercase, lowercase, and number
-              </p>
-            </div>
 
-            <div>
-              <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700">
-                Confirm Password
-              </label>
-              <div className="mt-1">
+              <div>
+                <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-2">
+                  Confirm Password
+                </label>
                 <input
                   id="confirmPassword"
                   name="confirmPassword"
@@ -241,49 +353,93 @@ export default function RegisterPage() {
                   required
                   value={formData.confirmPassword}
                   onChange={handleInputChange}
-                  className={`appearance-none block w-full px-3 py-2 border ${
+                  className={`w-full px-4 py-3 border ${
                     errors.confirmPassword ? 'border-red-300' : 'border-gray-300'
-                  } rounded-md placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
+                  } rounded-lg focus:outline-none focus:ring-2 focus:ring-[#D53840] focus:border-transparent transition-all duration-200 hover:border-gray-400`}
                   placeholder="Confirm your password"
                 />
+                {errors.confirmPassword && (
+                  <p className="mt-2 text-sm text-red-600">{errors.confirmPassword}</p>
+                )}
               </div>
-              {errors.confirmPassword && (
-                <p className="mt-2 text-sm text-red-600">{errors.confirmPassword}</p>
-              )}
-            </div>
 
-            <div>
               <button
                 type="submit"
                 disabled={isLoading}
-                className={`w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
+                className={`w-full py-3 px-4 rounded-lg text-white font-medium transition-all duration-200 ${
                   isLoading
                     ? 'bg-gray-400 cursor-not-allowed'
-                    : 'bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500'
+                    : 'bg-[#D53840] hover:bg-[#B8303A] hover:shadow-lg transform hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-[#D53840] focus:ring-offset-2'
                 }`}
               >
                 {isLoading ? 'Creating Account...' : 'Create Account'}
               </button>
-            </div>
-          </form>
+            </form>
 
-          <div className="mt-6">
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-300" />
-              </div>
-              <div className="relative flex justify-center text-sm">
-                <span className="px-2 bg-white text-gray-500">Already have an account?</span>
-              </div>
+            {/* Sign In Link */}
+            <div className="mt-8 text-center">
+              <p className="text-gray-600">
+                Already have an account?{' '}
+                <Link
+                  href="/login"
+                  className="font-medium text-[#D53840] hover:text-[#B8303A] transition-colors"
+                >
+                  Sign In
+                </Link>
+              </p>
+            </div>
+          </div>
+
+          {/* Right Section - Visual */}
+          <div 
+            ref={rightSectionRef}
+            className="flex-1 relative bg-gradient-to-br from-[#D53840] to-[#B8303A] overflow-hidden"
+          >
+            {/* Background Image */}
+            <div className="absolute inset-0">
+              <Image
+                src="/register.jpeg"
+                alt="Register Background"
+                fill
+                className="object-cover"
+                priority
+              />
+              {/* Red Gradient Overlay */}
+              <div 
+                ref={overlayRef}
+                className="absolute inset-0 bg-[#D53840]/75"
+              ></div>
             </div>
 
-            <div className="mt-6">
-              <Link
-                href="/login"
-                className="w-full flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-              >
-                Sign in to your account
-              </Link>
+            {/* Content */}
+            <div 
+              ref={rightContentRef}
+              className="relative z-10 h-full flex flex-col items-center justify-center text-center p-8 lg:p-12"
+            >
+              <div className="mb-8">
+                <Image
+                  src="/logohero.png"
+                  alt="Logo"
+                  width={150}
+                  height={50}
+                  className="mx-auto filter brightness-0 invert"
+                />
+              </div>
+              
+              <div className="text-white max-w-sm">
+                <h2 className="text-2xl lg:text-3xl font-bold mb-4">
+                  Start Your University Journey
+                </h2>
+                <p className="text-white/90 leading-relaxed">
+                  Connect with fellow students, share experiences, and build lasting friendships in your university community.
+                </p>
+              </div>
+
+              {/* Decorative Elements */}
+              <div className="absolute top-10 right-10 w-20 h-20 border border-white/20 rounded-full"></div>
+              <div className="absolute bottom-20 left-10 w-16 h-16 border border-white/20 rounded-full"></div>
+              <div className="absolute top-1/3 left-8 w-2 h-2 bg-white/40 rounded-full"></div>
+              <div className="absolute bottom-1/3 right-12 w-3 h-3 bg-white/30 rounded-full"></div>
             </div>
           </div>
         </div>
