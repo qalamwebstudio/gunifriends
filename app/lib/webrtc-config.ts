@@ -1,111 +1,63 @@
 /**
  * WebRTC Configuration and Utilities
- * Provides STUN/TURN server configuration and WebRTC helper functions
+ * Enhanced with proper TURN server support and network traversal
+ * Fixes 40-50 second connection drops in restrictive networks
  */
+
+import { 
+  getNetworkTraversalConfig, 
+  detectNetworkEnvironment,
+  NetworkTraversalMonitor,
+  performICERestart
+} from './webrtc-network-traversal';
 
 export interface WebRTCConfig {
   iceServers: RTCIceServer[];
+  iceTransportPolicy?: 'all' | 'relay';
   iceCandidatePoolSize?: number;
   bundlePolicy?: RTCBundlePolicy;
   rtcpMuxPolicy?: RTCRtcpMuxPolicy;
 }
 
 /**
- * Get WebRTC configuration with fallback STUN/TURN servers
+ * Get WebRTC configuration optimized for network traversal
+ * Automatically detects network environment and configures TURN servers
  */
-export function getWebRTCConfiguration(): WebRTCConfig {
-  const config: WebRTCConfig = {
-    iceServers: [
-      // Google STUN servers (primary)
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' },
-      { urls: 'stun:stun3.l.google.com:19302' },
-      { urls: 'stun:stun4.l.google.com:19302' },
-      
-      // Additional STUN servers for redundancy
-      { urls: 'stun:stun.services.mozilla.com' },
-      { urls: 'stun:stun.stunprotocol.org:3478' },
-      
-      // Cloudflare STUN servers
-      { urls: 'stun:stun.cloudflare.com:3478' },
-    ],
-    iceCandidatePoolSize: 10, // Pre-gather ICE candidates
-    bundlePolicy: 'max-bundle', // Bundle all media on single transport
-    rtcpMuxPolicy: 'require', // Multiplex RTP and RTCP
-  };
-
-  // Add free TURN servers for better connectivity
-  // Using multiple free public TURN servers for better NAT traversal
-  config.iceServers.push(
-    // Free TURN servers from Open Relay Project
-    {
-      urls: 'turn:openrelay.metered.ca:80',
-      username: 'openrelayproject',
-      credential: 'openrelayproject'
-    },
-    {
-      urls: 'turn:openrelay.metered.ca:443',
-      username: 'openrelayproject',
-      credential: 'openrelayproject'
-    },
-    {
-      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-      username: 'openrelayproject',
-      credential: 'openrelayproject'
-    },
-    // Additional free TURN servers for redundancy
-    {
-      urls: 'turn:relay1.expressturn.com:3478',
-      username: 'efJBIBF6DKC8QBA6XB',
-      credential: 'Ghq6EzYyZJQcZnOh'
-    },
-    {
-      urls: 'turn:a.relay.metered.ca:80',
-      username: 'a4e4c2c4e47852d693e5e4ca',
-      credential: 'uK56+px/q3BmZFxr'
-    },
-    {
-      urls: 'turn:a.relay.metered.ca:80?transport=tcp',
-      username: 'a4e4c2c4e47852d693e5e4ca',
-      credential: 'uK56+px/q3BmZFxr'
-    },
-    {
-      urls: 'turn:a.relay.metered.ca:443',
-      username: 'a4e4c2c4e47852d693e5e4ca',
-      credential: 'uK56+px/q3BmZFxr'
-    },
-    {
-      urls: 'turn:a.relay.metered.ca:443?transport=tcp',
-      username: 'a4e4c2c4e47852d693e5e4ca',
-      credential: 'uK56+px/q3BmZFxr'
-    }
-  );
-
-  // Add custom TURN servers if configured via environment variables
-  const turnServer = process.env.NEXT_PUBLIC_TURN_SERVER;
-  const turnUsername = process.env.NEXT_PUBLIC_TURN_USERNAME;
-  const turnCredential = process.env.NEXT_PUBLIC_TURN_CREDENTIAL;
-
-  if (turnServer && turnUsername && turnCredential) {
-    config.iceServers.push(
-      {
-        urls: `turn:${turnServer}:3478`,
-        username: turnUsername,
-        credential: turnCredential
-      },
-      {
-        urls: `turns:${turnServer}:5349`,
-        username: turnUsername,
-        credential: turnCredential
-      }
+export async function getWebRTCConfiguration(forceRelay: boolean = false): Promise<WebRTCConfig> {
+  try {
+    // Get optimized configuration based on network environment
+    const config = await getNetworkTraversalConfig(forceRelay);
+    
+    console.log(`🌐 WebRTC configuration loaded: ${config.iceServers.length} ICE servers`);
+    console.log(`🔧 ICE transport policy: ${config.iceTransportPolicy}`);
+    
+    // Log TURN server availability
+    const turnServers = config.iceServers.filter(server => 
+      (Array.isArray(server.urls) ? server.urls.some(url => url.startsWith('turn')) : server.urls.startsWith('turn'))
     );
-    console.log('Custom TURN servers configured for NAT traversal');
+    
+    if (turnServers.length > 0) {
+      console.log(`✅ ${turnServers.length} TURN servers configured for NAT traversal`);
+    } else {
+      console.warn('⚠️ No TURN servers configured - may fail in restrictive networks');
+    }
+    
+    return config;
+  } catch (error) {
+    console.error('❌ Failed to get WebRTC configuration:', error);
+    
+    // Fallback configuration with basic STUN servers
+    return {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun.services.mozilla.com' }
+      ],
+      iceCandidatePoolSize: 10,
+      bundlePolicy: 'max-bundle',
+      rtcpMuxPolicy: 'require'
+    };
   }
-  
-  console.log('TURN servers configured for NAT traversal');
-
-  return config;
 }
 
 /**
@@ -161,53 +113,77 @@ export const MediaConstraints = {
 } as const;
 
 /**
- * Test network connectivity for WebRTC
+ * Test network connectivity for WebRTC with enhanced TURN testing
  */
 export async function testWebRTCConnectivity(): Promise<{
   hasInternet: boolean;
   hasSTUN: boolean;
   hasTURN: boolean;
   latency: number;
+  networkType: 'open' | 'moderate' | 'restrictive';
+  recommendedPolicy: 'all' | 'relay';
 }> {
-  const result = {
-    hasInternet: false,
-    hasSTUN: false,
-    hasTURN: false,
-    latency: 0
-  };
-
   try {
-    // Test basic internet connectivity
-    const startTime = Date.now();
-    const response = await fetch('/api/health', { 
-      method: 'GET',
-      cache: 'no-cache',
-      signal: AbortSignal.timeout(5000)
-    });
+    // Use the enhanced network detection
+    const networkEnv = await detectNetworkEnvironment();
     
-    if (response.ok) {
-      result.hasInternet = true;
-      result.latency = Date.now() - startTime;
-    }
-
-    // Test STUN connectivity
-    result.hasSTUN = await testSTUNConnectivity();
-
-    // Test TURN connectivity if configured
-    const turnServer = process.env.NEXT_PUBLIC_TURN_SERVER;
-    if (turnServer) {
-      result.hasTURN = await testTURNConnectivity();
-    }
-
+    return {
+      hasInternet: true,
+      hasSTUN: networkEnv.networkType !== 'restrictive',
+      hasTURN: !networkEnv.isRestrictive,
+      latency: networkEnv.latency,
+      networkType: networkEnv.networkType,
+      recommendedPolicy: networkEnv.recommendedPolicy
+    };
   } catch (error) {
     console.error('Network connectivity test failed:', error);
-  }
+    
+    // Fallback test
+    const result = {
+      hasInternet: false,
+      hasSTUN: false,
+      hasTURN: false,
+      latency: 0,
+      networkType: 'restrictive' as 'open' | 'moderate' | 'restrictive',
+      recommendedPolicy: 'relay' as 'all' | 'relay'
+    };
 
-  return result;
+    try {
+      // Test basic internet connectivity
+      const startTime = Date.now();
+      const response = await fetch('/api/health', { 
+        method: 'GET',
+        cache: 'no-cache',
+        signal: AbortSignal.timeout(5000)
+      });
+      
+      if (response.ok) {
+        result.hasInternet = true;
+        result.latency = Date.now() - startTime;
+      }
+
+      // Test STUN connectivity
+      result.hasSTUN = await testSTUNConnectivity();
+
+      // Determine network type based on results
+      if (result.hasSTUN && result.latency < 500) {
+        result.networkType = 'open';
+        result.recommendedPolicy = 'all';
+      } else if (result.hasSTUN && result.latency < 1000) {
+        result.networkType = 'moderate';
+        result.recommendedPolicy = 'all';
+      }
+
+    } catch (error) {
+      console.error('Fallback connectivity test failed:', error);
+    }
+
+    return result;
+  }
 }
 
 /**
- * Test STUN server connectivity
+ * Test STUN server connectivity (simplified version)
  */
 async function testSTUNConnectivity(): Promise<boolean> {
   return new Promise((resolve) => {
@@ -222,7 +198,7 @@ async function testSTUNConnectivity(): Promise<boolean> {
         testPeerConnection.close();
         resolve(false);
       }
-    }, 10000);
+    }, 8000); // Reduced timeout
 
     testPeerConnection.onicecandidate = (event) => {
       if (event.candidate && event.candidate.type === 'srflx' && !resolved) {
@@ -248,59 +224,12 @@ async function testSTUNConnectivity(): Promise<boolean> {
   });
 }
 
-/**
- * Test TURN server connectivity
- */
-async function testTURNConnectivity(): Promise<boolean> {
-  const turnServer = process.env.NEXT_PUBLIC_TURN_SERVER;
-  const turnUsername = process.env.NEXT_PUBLIC_TURN_USERNAME;
-  const turnCredential = process.env.NEXT_PUBLIC_TURN_CREDENTIAL;
-
-  if (!turnServer || !turnUsername || !turnCredential) {
-    return false;
-  }
-
-  return new Promise((resolve) => {
-    const testPeerConnection = new RTCPeerConnection({
-      iceServers: [{
-        urls: `turn:${turnServer}:3478`,
-        username: turnUsername,
-        credential: turnCredential
-      }]
-    });
-
-    let resolved = false;
-    const timeout = setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        testPeerConnection.close();
-        resolve(false);
-      }
-    }, 15000); // Longer timeout for TURN
-
-    testPeerConnection.onicecandidate = (event) => {
-      if (event.candidate && event.candidate.type === 'relay' && !resolved) {
-        resolved = true;
-        clearTimeout(timeout);
-        testPeerConnection.close();
-        resolve(true);
-      }
-    };
-
-    // Create a dummy data channel to trigger ICE gathering
-    testPeerConnection.createDataChannel('test');
-    testPeerConnection.createOffer().then(offer => {
-      return testPeerConnection.setLocalDescription(offer);
-    }).catch(() => {
-      if (!resolved) {
-        resolved = true;
-        clearTimeout(timeout);
-        testPeerConnection.close();
-        resolve(false);
-      }
-    });
-  });
-}
+// Export the enhanced network traversal components
+export { 
+  NetworkTraversalMonitor, 
+  performICERestart, 
+  detectNetworkEnvironment 
+} from './webrtc-network-traversal';
 
 /**
  * Get media stream with fallback options
