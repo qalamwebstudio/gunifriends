@@ -4,16 +4,16 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { Socket } from 'socket.io-client';
 import { ClientToServerEvents, ServerToClientEvents } from '../types';
 import ReportModal from './ReportModal';
-import { 
-  getWebRTCConfiguration, 
-  testWebRTCConnectivity, 
-  getMediaStreamWithFallback, 
+import {
+  getWebRTCConfiguration,
+  testWebRTCConnectivity,
+  getMediaStreamWithFallback,
   ConnectionQualityMonitor,
   NetworkTraversalMonitor,
   performICERestart,
   detectNetworkEnvironment
 } from '../lib/webrtc-config';
-import { 
+import {
   CONNECTION_CONFIG,
   calculateExponentialBackoff,
   getTimeoutForPhase,
@@ -38,20 +38,22 @@ interface VideoChatProps {
   isSessionRestored?: boolean;
 }
 
-type ConnectionState = 'initializing' | 'connecting' | 'connected' | 'disconnected' | 'failed';
+type ConnectionState = 'idle' | 'matched' | 'connecting' | 'connected' | 'disconnected' | 'failed' | 'ended';
+type ConnectionPhase = 'pre-connection' | 'post-connection';
 
 export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onError, isSessionRestored = false }: VideoChatProps) {
   // Video element refs
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
-  
+
   // WebRTC refs
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const qualityMonitorRef = useRef<ConnectionQualityMonitor | null>(null);
-  
+
   // State
-  const [connectionState, setConnectionState] = useState<ConnectionState>('initializing');
+  const [connectionState, setConnectionState] = useState<ConnectionState>('matched');
+  const [connectionPhase, setConnectionPhase] = useState<ConnectionPhase>('pre-connection');
   const [isAudioMuted, setIsAudioMuted] = useState(false);
   const [isVideoDisabled, setIsVideoDisabled] = useState(false);
   const [isInitiator, setIsInitiator] = useState(false);
@@ -65,13 +67,14 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
   const [adaptiveStreamingEnabled, setAdaptiveStreamingEnabled] = useState(false);
   const [isConnectionEstablished, setIsConnectionEstablished] = useState(false);
 
-  // Enhanced WebRTC network traversal state
+  // Enhanced WebRTC network traversal state - FROZEN after connection
   const [networkType, setNetworkType] = useState<'open' | 'moderate' | 'restrictive'>('open');
   const [forceRelayMode, setForceRelayMode] = useState(false);
   const [iceRestartAttempts, setIceRestartAttempts] = useState(0);
   const [lastStableConnection, setLastStableConnection] = useState(0);
   const networkTraversalMonitorRef = useRef<any>(null);
-  
+  const [networkDetectionFrozen, setNetworkDetectionFrozen] = useState(false);
+
   // Grace period timers for connection state handling (Requirements 3.1, 3.2, 3.5)
   const [disconnectionGraceTimer, setDisconnectionGraceTimer] = useState<NodeJS.Timeout | null>(null);
   const [iceFailureGraceTimer, setIceFailureGraceTimer] = useState<NodeJS.Timeout | null>(null);
@@ -80,7 +83,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
   // Constants for error handling and retry logic (Requirements 4.2, 4.5)
   // Using centralized configuration for consistent timeout values
   const MAX_RECONNECT_ATTEMPTS_CONST = MAX_RECONNECT_ATTEMPTS; // 5 attempts for better reliability
-  
+
   // Separate timeouts for different connection phases (Requirements 4.1, 4.4)
   const INITIAL_CONNECTION_TIMEOUT_CONST = INITIAL_CONNECTION_TIMEOUT_MS; // 60s for initial setup
   const CONNECTION_SETUP_EXTENSION_CONST = CONNECTION_SETUP_EXTENSION_MS; // 15s extension for retries
@@ -88,7 +91,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
   const MAX_RECONNECT_DELAY_CONST = MAX_RECONNECT_DELAY_MS; // 30s maximum delay
   const EXPONENTIAL_BACKOFF_MULTIPLIER_CONST = EXPONENTIAL_BACKOFF_MULTIPLIER; // 2x multiplier
   const ICE_GATHERING_TIMEOUT_CONST = ICE_GATHERING_TIMEOUT_MS; // 15s for ICE gathering
-  
+
   // Grace periods for temporary connection issues (Requirements 3.1, 3.2, 3.5, 4.4)
   const DISCONNECTION_GRACE_PERIOD_CONST = DISCONNECTION_GRACE_PERIOD_MS; // 10s grace period
   const ICE_FAILURE_GRACE_PERIOD_CONST = ICE_FAILURE_GRACE_PERIOD_MS; // 5s grace period
@@ -100,6 +103,31 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
 
   // WebRTC configuration with STUN/TURN servers for NAT traversal
   const rtcConfiguration = getWebRTCConfiguration();
+
+  // Helper function to freeze network detection after successful connection
+  const freezeNetworkDetection = useCallback(() => {
+    if (!networkDetectionFrozen) {
+      console.log('🔒 FREEZING network detection - connection established successfully');
+      setNetworkDetectionFrozen(true);
+      setConnectionPhase('post-connection');
+
+      // Cancel all connection timeouts immediately
+      clearAllTimeoutTimers();
+      clearGraceTimers();
+
+      if (initialConnectionTimeout) {
+        clearTimeout(initialConnectionTimeout);
+        setInitialConnectionTimeout(null);
+      }
+
+      console.log('✅ All pre-connection timeouts and detection logic disabled');
+    }
+  }, [networkDetectionFrozen, initialConnectionTimeout]);
+
+  // Helper function to check if we should run pre-connection logic
+  const shouldRunPreConnectionLogic = useCallback(() => {
+    return connectionPhase === 'pre-connection' && !networkDetectionFrozen;
+  }, [connectionPhase, networkDetectionFrozen]);
 
   // Helper functions for timeout management (Requirements 3.5)
   const addTimeoutTimer = (timer: NodeJS.Timeout) => {
@@ -134,7 +162,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
   useEffect(() => {
     // Always initialize normally - don't delay for session restoration
     initializeVideoChat();
-    
+
     return () => {
       cleanup();
     };
@@ -155,18 +183,18 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     socket.on('session-timeout', handleSessionTimeout);
     socket.on('session-restored', handleSessionRestored);
     socket.on('session-restore-failed', handleSessionRestoreFailed);
-    
+
     // Handle socket errors
     socket.on('error', (errorMessage) => {
       console.error('Socket error in VideoChat:', errorMessage);
-      
+
       // Don't immediately end call on partner session errors - try to recover
-      if (errorMessage.includes('Partner session not found') || 
-          errorMessage.includes('No active partner session') ||
-          errorMessage.includes('Partner not connected')) {
+      if (errorMessage.includes('Partner session not found') ||
+        errorMessage.includes('No active partner session') ||
+        errorMessage.includes('Partner not connected')) {
         console.log('Partner session error in VideoChat - attempting recovery...');
         onError(`Connection issue: ${errorMessage}. Attempting to reconnect...`);
-        
+
         // Try to recover by recreating the connection
         setTimeout(() => {
           if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS_CONST) {
@@ -224,9 +252,9 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         },
         lastConnectionTime: Date.now()
       };
-      
+
       setSessionState(currentSessionState);
-      
+
       // Store in sessionStorage for browser refresh recovery
       try {
         sessionStorage.setItem('videoChat_sessionState', JSON.stringify(currentSessionState));
@@ -240,25 +268,25 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
   useEffect(() => {
     if (isSessionRestored) {
       console.log('Session restoration requested - checking for previous state');
-      
+
       // Try to restore from sessionStorage first
       try {
         const storedState = sessionStorage.getItem('videoChat_sessionState');
         if (storedState) {
           const parsedState = JSON.parse(storedState);
-          
+
           // Check if stored state is recent (within last 10 minutes)
           const stateAge = Date.now() - (parsedState.lastConnectionTime || 0);
           if (stateAge < 10 * 60 * 1000) { // 10 minutes
             console.log('Found recent session state, attempting restoration');
             setSessionState(parsedState);
-            
+
             // Restore media settings if available
             if (parsedState.mediaSettings) {
               setIsAudioMuted(parsedState.mediaSettings.audioMuted);
               setIsVideoDisabled(parsedState.mediaSettings.videoDisabled);
             }
-            
+
             // Request session restoration from server
             socket.emit('request-session-restore');
             return;
@@ -270,7 +298,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       } catch (error) {
         console.warn('Failed to restore session state from storage:', error);
       }
-      
+
       // Fallback to server-side session restoration
       socket.emit('request-session-restore');
     }
@@ -279,69 +307,70 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
   // Enhanced session restoration handler
   const handleSessionRestored = useCallback((data: { partnerId: string; roomId: string; wasReconnected: boolean }) => {
     console.log('Session restored successfully:', data);
-    
+
     // Update connection state to show restoration in progress
     setConnectionState('connecting');
     onError('Session restored! Reconnecting to your partner...');
-    
+
     // Apply restored session state
     if (sessionState.mediaSettings && localStreamRef.current) {
       // Restore audio/video settings
       const audioTrack = localStreamRef.current.getAudioTracks()[0];
       const videoTrack = localStreamRef.current.getVideoTracks()[0];
-      
+
       if (audioTrack) {
         audioTrack.enabled = !sessionState.mediaSettings.audioMuted;
         setIsAudioMuted(sessionState.mediaSettings.audioMuted);
       }
-      
+
       if (videoTrack) {
         videoTrack.enabled = !sessionState.mediaSettings.videoDisabled;
         setIsVideoDisabled(sessionState.mediaSettings.videoDisabled);
       }
-      
+
       console.log('Media settings restored:', sessionState.mediaSettings);
     }
-    
+
     // Clear restoration message after successful reconnection
     setTimeout(() => {
       if (connectionState === 'connected') {
         onError('');
       }
     }, 3000);
-    
+
   }, [sessionState, onError, connectionState]);
 
   const handleSessionRestoreFailed = useCallback((data: { reason: string }) => {
     console.log('Session restoration failed:', data.reason);
     onError(`Session restoration failed: ${data.reason}. Starting new session...`);
-    
+
     // Clear stored session state since restoration failed
     try {
       sessionStorage.removeItem('videoChat_sessionState');
     } catch (error) {
       console.warn('Failed to clear session state:', error);
     }
-    
+
     setSessionState({});
-    
+
     // Clear error message after a delay
     setTimeout(() => {
       onError('');
     }, 3000);
   }, [onError]);
 
-  // Network quality monitoring
+  // Network quality monitoring - ONLY use WebRTC stats after connection
   useEffect(() => {
     if (!peerConnectionRef.current || connectionState !== 'connected') return;
 
-    // Start quality monitoring
+    // Start quality monitoring ONLY with WebRTC stats, no network probing
     const monitor = new ConnectionQualityMonitor(
       peerConnectionRef.current,
       (quality) => {
         setNetworkQuality(quality);
-        
+
         // Enable adaptive streaming if network quality is poor
+        // Use ONLY sender parameter changes, NOT PeerConnection recreation
         if (quality === 'poor' && !adaptiveStreamingEnabled) {
           console.log('Poor network quality detected, enabling adaptive streaming');
           setAdaptiveStreamingEnabled(true);
@@ -371,7 +400,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
 
     try {
       let constraints;
-      
+
       switch (quality) {
         case 'low':
           constraints = {
@@ -399,7 +428,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
 
       await videoTrack.applyConstraints(constraints);
       console.log(`Video quality adapted to ${quality}`);
-      
+
     } catch (error) {
       console.error('Failed to adapt video quality:', error);
     }
@@ -416,18 +445,18 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     const handleOnline = () => {
       console.log('Network connection restored');
       setIsOnline(true);
-      
-      if (connectionState === 'connected' && peerConnectionRef.current) {
+
+      // ONLY attempt recovery if we're in post-connection phase AND have actual WebRTC failure
+      if (connectionState === 'connected' && peerConnectionRef.current && networkDetectionFrozen) {
         // Network came back online - check if WebRTC connection needs recovery
         const rtcState = peerConnectionRef.current.connectionState;
         const iceState = peerConnectionRef.current.iceConnectionState;
-        
-        if (rtcState === 'disconnected' || rtcState === 'failed' || 
-            iceState === 'disconnected' || iceState === 'failed') {
-          console.log('Network recovered but WebRTC connection needs repair');
+
+        if (rtcState === 'failed' || iceState === 'failed') {
+          console.log('Network recovered and WebRTC connection needs repair');
           setNetworkRecoveryInProgress(true);
           onError('Network connection restored. Reconnecting to your partner...');
-          
+
           // Attempt connection recovery after network restoration
           setTimeout(() => {
             if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS && !isReconnecting) {
@@ -435,9 +464,16 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
             }
             setNetworkRecoveryInProgress(false);
           }, 2000); // Give network a moment to stabilize
+        } else {
+          console.log('Network recovered but WebRTC connection is stable - no action needed');
         }
+      } else if (shouldRunPreConnectionLogic()) {
+        console.log('Network recovered during pre-connection phase');
+        // Let normal connection establishment handle this
+      } else {
+        console.log('Network recovered but connection is stable - ignoring');
       }
-      
+
       // Send heartbeat to notify server we're back online
       if (socket.connected) {
         socket.emit('heartbeat', {
@@ -477,38 +513,56 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     const handleVisibilityChange = () => {
       if (socket.connected) {
         const isVisible = !document.hidden;
-        
+
         // Send enhanced heartbeat with visibility status
         socket.emit('heartbeat', {
           isVisible,
           connectionQuality: networkQuality,
           isInActiveCall: connectionState === 'connected'
         });
-        
+
         // If tab becomes visible after being hidden, check connection health
-        if (isVisible && connectionState === 'connected' && peerConnectionRef.current) {
+        // BUT ONLY if we're in post-connection phase and have actual WebRTC failure
+        if (isVisible && connectionState === 'connected' && peerConnectionRef.current && networkDetectionFrozen) {
           console.log('Tab became visible - checking connection health');
-          
-          // Check if WebRTC connection is still healthy
+
+          // Check if WebRTC connection is actually failed (not just disconnected)
           const rtcConnectionState = peerConnectionRef.current.connectionState;
           const iceConnectionState = peerConnectionRef.current.iceConnectionState;
-          
-          if (rtcConnectionState === 'disconnected' || iceConnectionState === 'disconnected') {
-            console.log('Connection degraded while tab was hidden - attempting recovery');
-            // Don't immediately reconnect, let the grace period handle it
+
+          if (rtcConnectionState === 'failed' || iceConnectionState === 'failed') {
+            console.log('Connection actually failed while tab was hidden - attempting recovery');
             setPartnerTemporarilyDisconnected(true);
-            onError('Connection may have been affected by tab switching. Monitoring...');
-            
-            // Clear the message after a few seconds if connection recovers
+            onError('Connection failed while tab was hidden. Attempting to reconnect...');
+
+            // Attempt recovery only for actual failures
             setTimeout(() => {
-              if (peerConnectionRef.current && 
-                  (peerConnectionRef.current.connectionState === 'connected' || 
-                   peerConnectionRef.current.iceConnectionState === 'connected')) {
+              if (peerConnectionRef.current &&
+                (peerConnectionRef.current.connectionState === 'failed' ||
+                  peerConnectionRef.current.iceConnectionState === 'failed')) {
+                handleEnhancedICERestart();
+              } else {
                 setPartnerTemporarilyDisconnected(false);
                 onError('');
               }
+            }, 2000);
+          } else if (rtcConnectionState === 'disconnected' || iceConnectionState === 'disconnected') {
+            console.log('Connection temporarily disconnected while tab was hidden - monitoring');
+            // Just monitor, don't immediately reconnect
+            setTimeout(() => {
+              if (peerConnectionRef.current &&
+                (peerConnectionRef.current.connectionState === 'connected' ||
+                  peerConnectionRef.current.iceConnectionState === 'connected')) {
+                console.log('Connection recovered naturally after tab visibility change');
+              }
             }, 5000);
+          } else {
+            console.log('Connection is stable after tab visibility change - no action needed');
           }
+        } else if (shouldRunPreConnectionLogic()) {
+          console.log('Tab visibility changed during pre-connection phase - normal behavior');
+        } else {
+          console.log('Tab visibility changed but network detection frozen - ignoring');
         }
       }
     };
@@ -531,19 +585,19 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     try {
       const connectivity = await testWebRTCConnectivity();
       console.log('Network connectivity test results:', connectivity);
-      
+
       if (!connectivity.hasInternet) {
         return false;
       }
-      
+
       if (!connectivity.hasSTUN) {
         console.warn('STUN connectivity failed - may have issues with NAT traversal');
       }
-      
+
       if (!connectivity.hasTURN) {
         console.warn('TURN connectivity not available - may fail behind restrictive firewalls');
       }
-      
+
       return connectivity.hasInternet;
     } catch (error) {
       console.error('Network connectivity test failed:', error);
@@ -553,57 +607,65 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
 
   const initializeVideoChat = async () => {
     try {
-      setConnectionState('initializing');
+      setConnectionState('connecting');
+      setConnectionPhase('pre-connection');
+      setNetworkDetectionFrozen(false);
       setMediaError(null);
-      
+
       // Enhanced network connectivity testing with environment detection
-      console.log('Testing network connectivity...');
-      const connectivity = await testWebRTCConnectivity();
-      
-      console.log('Network connectivity test results:', connectivity);
-      
-      // Set network type and determine if we should force relay mode
-      setNetworkType(connectivity.networkType);
-      
-      // Force relay mode for restrictive networks or high latency
-      const shouldForceRelay = connectivity.networkType === 'restrictive' || 
-                              connectivity.latency > 1000 ||
-                              !connectivity.hasSTUN;
-      
-      setForceRelayMode(shouldForceRelay);
-      
-      if (shouldForceRelay) {
-        console.log('🔒 Forcing relay mode due to restrictive network environment');
+      // ONLY run this during pre-connection phase
+      if (shouldRunPreConnectionLogic()) {
+        console.log('Testing network connectivity...');
+        const connectivity = await testWebRTCConnectivity();
+
+        console.log('Network connectivity test results:', connectivity);
+
+        // Set network type and determine if we should force relay mode
+        // These settings are IMMUTABLE after connection establishment
+        setNetworkType(connectivity.networkType);
+
+        // Force relay mode for restrictive networks or high latency
+        const shouldForceRelay = connectivity.networkType === 'restrictive' ||
+          connectivity.latency > 1000 ||
+          !connectivity.hasSTUN;
+
+        setForceRelayMode(shouldForceRelay);
+
+        if (shouldForceRelay) {
+          console.log('🔒 Forcing relay mode due to restrictive network environment');
+        }
+
+        if (!connectivity.hasInternet) {
+          console.warn('Network connectivity test failed, proceeding with caution');
+          onError('Network connectivity issues detected. Connection may be unstable.');
+        }
+
+        if (!connectivity.hasTURN && connectivity.networkType === 'restrictive') {
+          console.warn('⚠️ TURN connectivity not available in restrictive network - connections may be unstable');
+        }
+
+        if (!connectivity.hasSTUN) {
+          console.warn('⚠️ STUN connectivity failed - NAT traversal may not work properly');
+        }
+
+        if (connectivity.latency > 1000) {
+          console.warn(`⚠️ High network latency detected: ${connectivity.latency}ms - may affect call quality`);
+        }
+      } else {
+        console.log('⏭️ Skipping network detection - connection phase is post-connection');
       }
-      
-      if (!connectivity.hasInternet) {
-        console.warn('Network connectivity test failed, proceeding with caution');
-        onError('Network connectivity issues detected. Connection may be unstable.');
-      }
-      
-      if (!connectivity.hasTURN && connectivity.networkType === 'restrictive') {
-        console.warn('⚠️ TURN connectivity not available in restrictive network - connections may be unstable');
-      }
-      
-      if (!connectivity.hasSTUN) {
-        console.warn('⚠️ STUN connectivity failed - NAT traversal may not work properly');
-      }
-      
-      if (connectivity.latency > 1000) {
-        console.warn(`⚠️ High network latency detected: ${connectivity.latency}ms - may affect call quality`);
-      }
-      
+
       // Get user media with fallback - this is critical
       console.log('Requesting camera and microphone access...');
       let stream: MediaStream;
       try {
         stream = await getMediaStreamWithFallback();
         localStreamRef.current = stream;
-        
+
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
         }
-        
+
         console.log('Media access successful:', {
           videoTracks: stream.getVideoTracks().length,
           audioTracks: stream.getAudioTracks().length
@@ -616,7 +678,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
 
       // Create peer connection with enhanced network traversal
       console.log('Creating WebRTC peer connection...');
-      const peerConnection = await createPeerConnection(shouldForceRelay);
+      const peerConnection = await createPeerConnection(forceRelayMode);
       peerConnectionRef.current = peerConnection;
 
       // Add local stream to peer connection
@@ -626,13 +688,11 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         peerConnection.addTrack(track, stream);
       });
 
-      setConnectionState('connecting');
-      
       // Determine if this client should initiate the call
       // Use deterministic comparison to ensure only one side initiates
       const token = localStorage.getItem('authToken');
       let currentUserId = '';
-      
+
       if (token) {
         try {
           // Decode JWT to get user ID (simple base64 decode of payload)
@@ -645,11 +705,11 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       } else {
         currentUserId = socket.id || `fallback_${Date.now()}`; // Fallback to socket ID or generate one
       }
-      
+
       // Use string comparison for deterministic initiator selection
       const shouldInitiate = currentUserId.localeCompare(partnerId) < 0;
       setIsInitiator(shouldInitiate);
-      
+
       console.log('Connection initiation logic:', {
         currentUserId,
         partnerId,
@@ -657,7 +717,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         shouldInitiate,
         comparison: `${currentUserId}.localeCompare(${partnerId}) = ${currentUserId.localeCompare(partnerId)} < 0 = ${shouldInitiate}`
       });
-      
+
       if (shouldInitiate) {
         console.log('🚀 This client will initiate the connection');
         // Add delay to ensure both sides are ready and socket events are set up
@@ -679,7 +739,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         }, 3000); // Increased delay to 3 seconds for better reliability
       } else {
         console.log('⏳ This client will wait for offer from partner');
-        
+
         // Add a fallback timeout - if no offer is received within 15 seconds, create one anyway
         setTimeout(() => {
           if (peerConnectionRef.current && peerConnectionRef.current.signalingState === 'stable') {
@@ -689,15 +749,19 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         }, 15000); // Increased fallback timeout
       }
 
-      // Set initial connection timeout only for setup phase
-      const timeout = setTimeout(() => {
-        if (!isConnectionEstablished && connectionState !== 'connected') {
-          console.log('Initial connection timeout reached');
-          handleInitialConnectionTimeout();
-        }
-      }, INITIAL_CONNECTION_TIMEOUT_CONST);
-      setInitialConnectionTimeout(timeout);
-      
+      // Set initial connection timeout ONLY during pre-connection phase
+      if (shouldRunPreConnectionLogic()) {
+        const timeout = setTimeout(() => {
+          if (!isConnectionEstablished && connectionState !== 'connected') {
+            console.log('Initial connection timeout reached');
+            handleInitialConnectionTimeout();
+          }
+        }, INITIAL_CONNECTION_TIMEOUT_CONST);
+        setInitialConnectionTimeout(timeout);
+      } else {
+        console.log('⏭️ Skipping initial connection timeout - already in post-connection phase');
+      }
+
     } catch (error) {
       console.error('Failed to initialize video chat:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to initialize video chat';
@@ -709,26 +773,26 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
   const createPeerConnection = async (forceRelay: boolean = false): Promise<RTCPeerConnection> => {
     // Get enhanced WebRTC configuration with network traversal support
     const config = await getWebRTCConfiguration(forceRelay);
-    
+
     console.log(`🔧 Creating peer connection with ${config.iceServers.length} ICE servers`);
     console.log(`🔧 ICE transport policy: ${config.iceTransportPolicy || 'all'}`);
-    
+
     // Log TURN servers for debugging
     const turnServers = config.iceServers.filter(server => {
       const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
       return urls.some(url => url.startsWith('turn'));
     });
-    
+
     console.log(`🔧 TURN servers configured: ${turnServers.length}`);
     turnServers.forEach((server, index) => {
       const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
       console.log(`   TURN ${index + 1}: ${urls[0]} (${server.username ? 'with credentials' : 'no credentials'})`);
     });
-    
+
     if (forceRelay) {
       console.log('🔒 FORCED RELAY MODE: Only TURN servers will be used');
     }
-    
+
     const peerConnection = new RTCPeerConnection(config);
 
     // Setup all event handlers
@@ -761,32 +825,32 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         offerToReceiveVideo: true,
         iceRestart: false // Don't restart ICE unless necessary
       });
-      
+
       console.log('📝 Setting local description...');
       await peerConnectionRef.current.setLocalDescription(offer);
-      
+
       // Wait a moment for ICE gathering to start
       await new Promise(resolve => setTimeout(resolve, 500));
-      
+
       console.log('📤 Sending offer to partner via socket...');
       socket.emit('offer', offer);
-      
+
       console.log('✅ Offer created and sent successfully');
-      
+
       // Set a timeout for receiving an answer
       setTimeout(() => {
-        if (peerConnectionRef.current && 
-            peerConnectionRef.current.signalingState === 'have-local-offer' &&
-            connectionState !== 'connected') {
+        if (peerConnectionRef.current &&
+          peerConnectionRef.current.signalingState === 'have-local-offer' &&
+          connectionState !== 'connected') {
           console.log('⏰ No answer received within 10s, may need to retry');
           // Don't automatically retry here, let the connection timeout handle it
         }
       }, 10000);
-      
+
     } catch (error) {
       console.error('❌ Error creating offer:', error);
       onError('Failed to create connection offer. Retrying...');
-      
+
       // Retry after exponential backoff delay (Requirements 4.2)
       const retryDelay = calculateExponentialBackoffDelay(1, 2000, 8000); // Start with 2s, max 8s for offer retries
       setTimeout(() => {
@@ -806,11 +870,11 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
 
     try {
       console.log('📨 Received offer from partner, setting remote description...');
-      
+
       // Check if we already have a remote description
       if (peerConnectionRef.current.remoteDescription) {
         console.log('⚠️ Remote description already set');
-        
+
         // Check if this is an ICE restart offer
         if (offer.sdp && offer.sdp.includes('a=ice-options:ice2')) {
           console.log('🔄 Detected ICE restart offer, processing...');
@@ -820,14 +884,14 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
           return;
         }
       }
-      
+
       // Check signaling state
       if (peerConnectionRef.current.signalingState === 'have-local-offer') {
         console.log('⚠️ Received offer while we have local offer - handling collision');
         // Handle offer collision - the one with lower user ID should back off
         const token = localStorage.getItem('authToken');
         let currentUserId = '';
-        
+
         if (token) {
           try {
             const payload = JSON.parse(atob(token.split('.')[1]));
@@ -838,7 +902,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         } else {
           currentUserId = socket.id || `fallback_${Date.now()}`;
         }
-        
+
         // If we have lower ID, we should back off and accept the offer
         if (currentUserId.localeCompare(partnerId) < 0) {
           console.log('🔄 Backing off from offer collision - accepting remote offer');
@@ -853,32 +917,32 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
           return;
         }
       }
-      
+
       await peerConnectionRef.current.setRemoteDescription(offer);
-      
+
       console.log('📝 Creating answer...');
       const answer = await peerConnectionRef.current.createAnswer({
         offerToReceiveAudio: true,
         offerToReceiveVideo: true
       });
-      
+
       console.log('📝 Setting local description with answer...');
       await peerConnectionRef.current.setLocalDescription(answer);
-      
+
       console.log('📤 Sending answer to partner...');
       socket.emit('answer', answer);
       console.log('✅ Answer created and sent successfully');
     } catch (error) {
       console.error('❌ Error handling offer:', error);
-      
+
       // Don't retry ICE restart offers to avoid loops
       if (offer.sdp && offer.sdp.includes('a=ice-options:ice2')) {
         console.log('ICE restart offer failed, not retrying to avoid loops');
         return;
       }
-      
+
       onError('Failed to handle connection offer. Retrying...');
-      
+
       // Retry after exponential backoff delay
       const retryDelay = calculateExponentialBackoffDelay(1, 2000, 8000);
       setTimeout(() => {
@@ -898,25 +962,25 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
 
     try {
       console.log('📨 Received answer from partner, setting remote description...');
-      
+
       // Check if we already have a remote description
       if (peerConnectionRef.current.remoteDescription) {
         console.log('⚠️ Remote description already set, ignoring duplicate answer');
         return;
       }
-      
+
       // Ensure we're in the correct signaling state
       if (peerConnectionRef.current.signalingState !== 'have-local-offer') {
         console.log(`⚠️ Unexpected signaling state for answer: ${peerConnectionRef.current.signalingState}`);
         return;
       }
-      
+
       await peerConnectionRef.current.setRemoteDescription(answer);
       console.log('✅ Answer received and set successfully');
     } catch (error) {
       console.error('❌ Error handling answer:', error);
       onError('Failed to handle connection answer. Retrying...');
-      
+
       // Retry after exponential backoff delay (Requirements 4.2)
       const retryDelay = calculateExponentialBackoffDelay(1, 2000, 8000); // Start with 2s, max 8s for answer handling retries
       setTimeout(() => {
@@ -1041,7 +1105,10 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       remoteVideoRef.current.srcObject = null;
     }
 
-    setConnectionState('disconnected');
+    // Reset all state including frozen detection
+    setConnectionState('ended');
+    setConnectionPhase('pre-connection');
+    setNetworkDetectionFrozen(false);
     setIsConnectionEstablished(false);
     setIsReconnecting(false);
     setReconnectAttempts(0);
@@ -1111,7 +1178,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
 
       if (data.success) {
         console.log('Report submitted successfully:', data.data);
-        
+
         // Emit report event to server for immediate session termination
         socket.emit('report-user', {
           reportedUserId: partnerId,
@@ -1133,15 +1200,21 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
 
   const handleInitialConnectionTimeout = () => {
     console.log('Initial connection timeout - implementing progressive extension');
-    
+
+    // CRITICAL: Do not run timeout logic if network detection is frozen
+    if (networkDetectionFrozen) {
+      console.log('⏭️ Ignoring initial connection timeout - network detection frozen (connection established)');
+      return;
+    }
+
     // Only extend timeout during initial connection setup, not for established connections
     if (!isConnectionEstablished && connectionState === 'connecting' && reconnectAttempts < MAX_RECONNECT_ATTEMPTS_CONST) {
       console.log('Connection still in progress, extending timeout...');
       // Implement exponential backoff for timeout extensions (Requirements 4.2)
       const extensionTime = calculateExponentialBackoffDelay(reconnectAttempts + 1, CONNECTION_SETUP_EXTENSION_CONST, MAX_RECONNECT_DELAY_CONST);
-      
+
       console.log(`Extending timeout by ${extensionTime}ms (attempt ${reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS_CONST})`);
-      
+
       const extendedTimeout = setTimeout(() => {
         if (!isConnectionEstablished && peerConnectionRef.current && peerConnectionRef.current.connectionState !== 'connected') {
           console.log('Extended connection timeout reached');
@@ -1149,10 +1222,10 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         }
       }, extensionTime);
       setInitialConnectionTimeout(extendedTimeout);
-      
+
       // Increment reconnect attempts for progressive extension
       setReconnectAttempts(prev => prev + 1);
-    } else if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS_CONST) {
+    } else if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS_CONST && shouldRunPreConnectionLogic()) {
       attemptReconnection();
     } else {
       console.log('Max reconnection attempts reached during initial setup, showing error');
@@ -1160,7 +1233,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       const errorMessage = `Connection timeout after ${MAX_RECONNECT_ATTEMPTS_CONST} attempts. This may be due to network issues or firewall restrictions. Please check your internet connection and try again.`;
       onError(errorMessage);
       setConnectionState('failed');
-      
+
       // Provide recovery options to user
       setTimeout(() => {
         onError(`${errorMessage} You can try refreshing the page or checking your network settings.`);
@@ -1172,7 +1245,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     console.log('Connection lost - checking for reconnection');
     // Clear grace timers since we're now handling the connection loss
     clearGraceTimers();
-    
+
     if (connectionState === 'connected' && reconnectAttempts < MAX_RECONNECT_ATTEMPTS_CONST && !isReconnecting) {
       attemptReconnection();
     }
@@ -1182,7 +1255,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     console.log('Connection failed - attempting recovery');
     // Clear grace timers since we're now handling the failure
     clearGraceTimers();
-    
+
     // Only attempt reconnection if we haven't exceeded max attempts and not already reconnecting
     if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS_CONST && !isReconnecting) {
       console.log(`Connection failed, attempting reconnection ${reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS_CONST}`);
@@ -1190,7 +1263,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     } else if (!isReconnecting) {
       console.log('Max reconnection attempts reached after connection failure');
       setConnectionState('failed');
-      
+
       // Enhanced error handling for maximum retry scenarios (Requirements 4.5)
       const errorMessage = `Connection failed after ${MAX_RECONNECT_ATTEMPTS_CONST} reconnection attempts. This could be due to:
       • Network connectivity issues
@@ -1198,9 +1271,9 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       • Server overload
       
       Please check your internet connection and try again. If the problem persists, try refreshing the page.`;
-      
+
       onError(errorMessage);
-      
+
       // Provide additional recovery guidance after a delay
       setTimeout(() => {
         onError('You can also try connecting from a different network or contact support if issues continue.');
@@ -1210,7 +1283,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
 
   const handleEnhancedICERestart = async () => {
     console.log('🔄 Handling enhanced ICE restart for network traversal...');
-    
+
     if (!peerConnectionRef.current || isReconnecting) {
       console.log('Cannot perform ICE restart: peer connection unavailable or already reconnecting');
       return;
@@ -1222,13 +1295,13 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     try {
       const currentAttempt = iceRestartAttempts + 1;
       setIceRestartAttempts(currentAttempt);
-      
+
       console.log(`🔄 ICE restart attempt ${currentAttempt}/3`);
-      
+
       // Check if peer connection is in stable state for ICE restart
       if (peerConnectionRef.current.signalingState !== 'stable') {
         console.log(`⚠️ Cannot restart ICE in signaling state: ${peerConnectionRef.current.signalingState}`);
-        
+
         // Wait for stable state or fall back to full reconnection
         setTimeout(() => {
           if (peerConnectionRef.current?.signalingState === 'stable') {
@@ -1243,15 +1316,15 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
 
       // Force relay mode for ICE restart if we're in a restrictive network
       const shouldForceRelay = networkType === 'restrictive' || currentAttempt > 1;
-      
+
       if (shouldForceRelay && !forceRelayMode) {
         console.log('🔒 Forcing relay mode for ICE restart due to previous failures');
         setForceRelayMode(true);
-        
+
         // Recreate peer connection with relay-only mode
         const newConfig = await getWebRTCConfiguration(true);
         const newPeerConnection = new RTCPeerConnection(newConfig);
-        
+
         // Copy event handlers and tracks from old connection
         await recreatePeerConnectionWithRelayMode(newPeerConnection);
         return;
@@ -1264,23 +1337,23 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         offerToReceiveAudio: true,
         offerToReceiveVideo: true
       });
-      
+
       console.log('📝 Setting local description for ICE restart...');
       await peerConnectionRef.current.setLocalDescription(offer);
-      
+
       // Send the ICE restart offer
       console.log('📤 Sending ICE restart offer...');
       socket.emit('offer', offer);
-      
+
       console.log('✅ ICE restart initiated successfully');
-      
+
       // Set timeout for ICE restart completion
       setTimeout(() => {
-        if (peerConnectionRef.current && 
-            (peerConnectionRef.current.iceConnectionState === 'failed' || 
-             peerConnectionRef.current.iceConnectionState === 'disconnected')) {
+        if (peerConnectionRef.current &&
+          (peerConnectionRef.current.iceConnectionState === 'failed' ||
+            peerConnectionRef.current.iceConnectionState === 'disconnected')) {
           console.log('❌ ICE restart timeout - connection still failed');
-          
+
           if (currentAttempt < 3) {
             handleEnhancedICERestart();
           } else {
@@ -1289,10 +1362,10 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
           }
         }
       }, 10000); // 10 second timeout for ICE restart
-      
+
     } catch (error) {
       console.error('Enhanced ICE restart failed:', error);
-      
+
       // Fall back to full reconnection with relay mode
       if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS_CONST) {
         console.log('ICE restart failed, falling back to full reconnection with relay mode');
@@ -1311,7 +1384,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         • Connecting from a different network (mobile data)
         • Disabling VPN if active
         • Using a different browser`;
-        
+
         onError(errorMessage);
         handleConnectionFailure();
       }
@@ -1321,23 +1394,23 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
   // Helper function to recreate peer connection with relay mode
   const recreatePeerConnectionWithRelayMode = async (newPeerConnection: RTCPeerConnection) => {
     console.log('🔄 Recreating peer connection with relay-only mode...');
-    
+
     // Setup event handlers for new connection
     setupPeerConnectionEventHandlers(newPeerConnection);
-    
+
     // Add local stream tracks
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(track => {
         newPeerConnection.addTrack(track, localStreamRef.current!);
       });
     }
-    
+
     // Close old connection and replace
     if (peerConnectionRef.current) {
       peerConnectionRef.current.close();
     }
     peerConnectionRef.current = newPeerConnection;
-    
+
     // Create new offer with the relay-only connection
     if (isInitiator) {
       await createOffer();
@@ -1351,24 +1424,24 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       peerConnection,
       (state: string, details: any) => {
         console.log(`🔗 Network traversal event: ${state}`, details);
-        
+
         switch (state) {
           case 'ice-connected':
             setLastStableConnection(Date.now());
             setIceRestartAttempts(0);
             break;
-            
+
           case 'ice-disconnected':
             // Handle temporary disconnections common in restrictive networks
             if (details.timeSinceLastStable > 45000) { // 45 seconds
               console.log('🔄 Long disconnection detected - may need ICE restart');
             }
             break;
-            
+
           case 'ice-restart-needed':
             handleEnhancedICERestart();
             break;
-            
+
           case 'ice-failed-permanently':
             console.log('❌ ICE connection failed permanently after multiple restart attempts');
             handleConnectionFailure();
@@ -1382,11 +1455,11 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     let iceCandidateCount = 0;
     let relayCandidateCount = 0;
     let srflxCandidateCount = 0;
-    
+
     peerConnection.onicecandidate = (event) => {
       if (event.candidate) {
         iceCandidateCount++;
-        
+
         // Track different candidate types
         if (event.candidate.type === 'relay') {
           relayCandidateCount++;
@@ -1404,7 +1477,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
             port: event.candidate.port
           });
         }
-        
+
         console.log(`ICE candidate found (${iceCandidateCount}):`, {
           type: event.candidate.type,
           protocol: event.candidate.protocol,
@@ -1412,32 +1485,32 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
           port: event.candidate.port,
           priority: event.candidate.priority
         });
-        
+
         socket.emit('ice-candidate', event.candidate.toJSON());
       } else {
         console.log(`✅ ICE gathering completed: ${iceCandidateCount} total candidates`);
         console.log(`   - Relay (TURN): ${relayCandidateCount}`);
         console.log(`   - Server Reflexive (STUN): ${srflxCandidateCount}`);
         console.log(`   - Host: ${iceCandidateCount - relayCandidateCount - srflxCandidateCount}`);
-        
+
         // Critical: Warn if no relay candidates in restrictive network or when forced
         if ((networkType === 'restrictive' || forceRelayMode) && relayCandidateCount === 0) {
           console.error('❌ CRITICAL: No TURN relay candidates found!');
           console.error('This will cause connection failures in restrictive networks.');
           console.error('Check TURN server configuration and credentials.');
-          
+
           // Force a reconnection with different TURN servers if available
           if (iceRestartAttempts < 2) {
             console.log('🔄 Attempting ICE restart to gather TURN candidates...');
             setTimeout(() => handleEnhancedICERestart(), 2000);
           }
         }
-        
+
         // Warn if only host candidates (no NAT traversal)
         if (relayCandidateCount === 0 && srflxCandidateCount === 0) {
           console.warn('⚠️ Only host candidates found - NAT traversal may fail');
         }
-        
+
         if (iceGatheringTimeout) {
           clearTimeout(iceGatheringTimeout);
           iceGatheringTimeout = null;
@@ -1448,17 +1521,17 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     // Enhanced ICE gathering state handling with TURN verification
     peerConnection.onicegatheringstatechange = () => {
       console.log('ICE gathering state:', peerConnection.iceGatheringState);
-      
+
       if (peerConnection.iceGatheringState === 'gathering') {
         // Longer timeout for restrictive networks to allow TURN candidates
         const timeout = (networkType === 'restrictive' || forceRelayMode) ? 25000 : ICE_GATHERING_TIMEOUT_CONST;
-        
+
         console.log(`⏱️ ICE gathering timeout set to ${timeout}ms for network type: ${networkType}`);
-        
+
         iceGatheringTimeout = setTimeout(() => {
           console.log(`⏰ ICE gathering timeout after ${timeout}ms`);
           console.log(`Final candidate count: ${iceCandidateCount} (${relayCandidateCount} relay, ${srflxCandidateCount} srflx)`);
-          
+
           if (relayCandidateCount === 0 && (networkType === 'restrictive' || forceRelayMode)) {
             console.error('❌ TURN gathering failed - no relay candidates after timeout');
           }
@@ -1483,7 +1556,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     peerConnection.onconnectionstatechange = () => {
       const state = peerConnection.connectionState;
       console.log('Connection state changed:', state);
-      
+
       switch (state) {
         case 'connecting':
           console.log('WebRTC connection is being established...');
@@ -1496,43 +1569,63 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
           setReconnectAttempts(0);
           setIsReconnecting(false);
           setIceRestartAttempts(0); // Reset ICE restart attempts on successful connection
-          clearAllTimeoutTimers();
-          clearGraceTimers();
-          if (initialConnectionTimeout) {
-            clearTimeout(initialConnectionTimeout);
-            setInitialConnectionTimeout(null);
-          }
+
+          // CRITICAL: Freeze all network detection and timeout logic
+          freezeNetworkDetection();
+
           break;
         case 'disconnected':
           console.log('WebRTC connection disconnected - implementing grace period');
-          setConnectionState('disconnected');
-          
-          if (!disconnectionGraceTimer && !isReconnecting) {
-            console.log(`Starting ${DISCONNECTION_GRACE_PERIOD_CONST}ms grace period for disconnection`);
-            const graceTimer = setTimeout(() => {
-              if (peerConnection.connectionState === 'disconnected') {
-                console.log('Grace period expired, attempting ICE restart first');
-                handleEnhancedICERestart(); // Try ICE restart before full reconnection
-              }
-              setDisconnectionGraceTimer(null);
-            }, DISCONNECTION_GRACE_PERIOD_CONST);
-            setDisconnectionGraceTimer(graceTimer);
+
+          // ONLY trigger reconnection logic if we're in post-connection phase
+          // AND this is an actual WebRTC failure, not a latency spike
+          if (connectionPhase === 'post-connection' && networkDetectionFrozen) {
+            console.log('Post-connection disconnection detected - using grace period');
+            setConnectionState('disconnected');
+
+            if (!disconnectionGraceTimer && !isReconnecting) {
+              console.log(`Starting ${DISCONNECTION_GRACE_PERIOD_CONST}ms grace period for disconnection`);
+              const graceTimer = setTimeout(() => {
+                if (peerConnection.connectionState === 'disconnected') {
+                  console.log('Grace period expired, attempting ICE restart first');
+                  handleEnhancedICERestart(); // Try ICE restart before full reconnection
+                }
+                setDisconnectionGraceTimer(null);
+              }, DISCONNECTION_GRACE_PERIOD_CONST);
+              setDisconnectionGraceTimer(graceTimer);
+            }
+          } else if (shouldRunPreConnectionLogic()) {
+            console.log('Pre-connection disconnection - normal connection establishment process');
+            setConnectionState('connecting'); // Stay in connecting state during initial setup
+          } else {
+            console.log('Ignoring disconnection - network detection frozen, likely latency spike');
           }
           break;
         case 'failed':
           console.log('WebRTC connection failed - implementing grace period before retry');
-          setConnectionState('failed');
-          
-          if (!iceFailureGraceTimer && !isReconnecting) {
-            console.log(`Starting ${ICE_FAILURE_GRACE_PERIOD_CONST}ms grace period for connection failure`);
-            const graceTimer = setTimeout(() => {
-              if (peerConnection.connectionState === 'failed') {
-                console.log('Grace period expired, attempting ICE restart');
-                handleEnhancedICERestart(); // Try ICE restart before full reconnection
-              }
-              setIceFailureGraceTimer(null);
-            }, ICE_FAILURE_GRACE_PERIOD_CONST);
-            setIceFailureGraceTimer(graceTimer);
+
+          // ONLY trigger reconnection logic if this is an actual WebRTC failure
+          if (connectionPhase === 'post-connection' && networkDetectionFrozen) {
+            console.log('Post-connection failure detected - using grace period');
+            setConnectionState('failed');
+
+            if (!iceFailureGraceTimer && !isReconnecting) {
+              console.log(`Starting ${ICE_FAILURE_GRACE_PERIOD_CONST}ms grace period for connection failure`);
+              const graceTimer = setTimeout(() => {
+                if (peerConnection.connectionState === 'failed') {
+                  console.log('Grace period expired, attempting ICE restart');
+                  handleEnhancedICERestart(); // Try ICE restart before full reconnection
+                }
+                setIceFailureGraceTimer(null);
+              }, ICE_FAILURE_GRACE_PERIOD_CONST);
+              setIceFailureGraceTimer(graceTimer);
+            }
+          } else if (shouldRunPreConnectionLogic()) {
+            console.log('Pre-connection failure - normal connection establishment process');
+            setConnectionState('connecting'); // Stay in connecting state during initial setup
+            // Let the initial connection timeout handle this
+          } else {
+            console.log('Ignoring connection failure - network detection frozen, likely false positive');
           }
           break;
         case 'closed':
@@ -1547,7 +1640,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     peerConnection.oniceconnectionstatechange = () => {
       const iceState = peerConnection.iceConnectionState;
       console.log('ICE connection state:', iceState);
-      
+
       switch (iceState) {
         case 'checking':
           console.log('ICE connectivity checks are in progress...');
@@ -1557,40 +1650,68 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
           console.log('ICE connectivity checks succeeded');
           setLastStableConnection(Date.now());
           clearGraceTimers();
+
+          // CRITICAL: Also freeze on ICE connected
+          freezeNetworkDetection();
+
           break;
         case 'completed':
           console.log('ICE connectivity checks completed successfully');
           setLastStableConnection(Date.now());
           clearGraceTimers();
+
+          // CRITICAL: Also freeze on ICE completed
+          freezeNetworkDetection();
+
           break;
         case 'failed':
           console.log('ICE connectivity checks failed - implementing enhanced retry logic');
-          
-          if (!iceFailureGraceTimer && !isReconnecting) {
-            console.log(`Starting ${ICE_FAILURE_GRACE_PERIOD_CONST}ms grace period for ICE failure`);
-            const graceTimer = setTimeout(() => {
-              if (peerConnection.iceConnectionState === 'failed') {
-                console.log('ICE failure grace period expired, attempting enhanced ICE restart');
-                handleEnhancedICERestart();
-              }
-              setIceFailureGraceTimer(null);
-            }, ICE_FAILURE_GRACE_PERIOD_CONST);
-            setIceFailureGraceTimer(graceTimer);
+
+          // ONLY trigger reconnection logic if this is an actual ICE failure in post-connection phase
+          if (connectionPhase === 'post-connection' && networkDetectionFrozen) {
+            console.log('Post-connection ICE failure detected - using grace period');
+
+            if (!iceFailureGraceTimer && !isReconnecting) {
+              console.log(`Starting ${ICE_FAILURE_GRACE_PERIOD_CONST}ms grace period for ICE failure`);
+              const graceTimer = setTimeout(() => {
+                if (peerConnection.iceConnectionState === 'failed') {
+                  console.log('ICE failure grace period expired, attempting enhanced ICE restart');
+                  handleEnhancedICERestart();
+                }
+                setIceFailureGraceTimer(null);
+              }, ICE_FAILURE_GRACE_PERIOD_CONST);
+              setIceFailureGraceTimer(graceTimer);
+            }
+          } else if (shouldRunPreConnectionLogic()) {
+            console.log('Pre-connection ICE failure - normal connection establishment process');
+            // Let the initial connection timeout handle this
+          } else {
+            console.log('Ignoring ICE failure - network detection frozen, likely false positive');
           }
           break;
         case 'disconnected':
           console.log('ICE connection disconnected - implementing grace period');
-          
-          if (!disconnectionGraceTimer && !isReconnecting) {
-            console.log(`Starting ${DISCONNECTION_GRACE_PERIOD_CONST}ms grace period for ICE disconnection`);
-            const graceTimer = setTimeout(() => {
-              if (peerConnection.iceConnectionState === 'disconnected') {
-                console.log('ICE disconnection grace period expired, attempting ICE restart');
-                handleEnhancedICERestart(); // Try ICE restart first
-              }
-              setDisconnectionGraceTimer(null);
-            }, DISCONNECTION_GRACE_PERIOD_CONST);
-            setDisconnectionGraceTimer(graceTimer);
+
+          // ONLY trigger reconnection logic if this is an actual ICE disconnection in post-connection phase
+          if (connectionPhase === 'post-connection' && networkDetectionFrozen) {
+            console.log('Post-connection ICE disconnection detected - using grace period');
+
+            if (!disconnectionGraceTimer && !isReconnecting) {
+              console.log(`Starting ${DISCONNECTION_GRACE_PERIOD_CONST}ms grace period for ICE disconnection`);
+              const graceTimer = setTimeout(() => {
+                if (peerConnection.iceConnectionState === 'disconnected') {
+                  console.log('ICE disconnection grace period expired, attempting ICE restart');
+                  handleEnhancedICERestart(); // Try ICE restart first
+                }
+                setDisconnectionGraceTimer(null);
+              }, DISCONNECTION_GRACE_PERIOD_CONST);
+              setDisconnectionGraceTimer(graceTimer);
+            }
+          } else if (shouldRunPreConnectionLogic()) {
+            console.log('Pre-connection ICE disconnection - normal connection establishment process');
+            // Let the initial connection timeout handle this
+          } else {
+            console.log('Ignoring ICE disconnection - network detection frozen, likely latency spike');
           }
           break;
         case 'closed':
@@ -1624,16 +1745,16 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     setIsReconnecting(true);
     const currentAttempt = reconnectAttempts + 1;
     setReconnectAttempts(currentAttempt);
-    
+
     // Clear any existing grace timers and timeout timers to prevent conflicts
     clearGraceTimers();
     clearAllTimeoutTimers();
-    
+
     console.log(`Attempting reconnection ${currentAttempt}/${MAX_RECONNECT_ATTEMPTS}`);
 
     // Implement proper exponential backoff with reasonable maximum delays
     const delay = calculateExponentialBackoffDelay(currentAttempt);
-    
+
     console.log(`Exponential backoff: attempt=${currentAttempt}, delay=${delay}ms (max=${MAX_RECONNECT_DELAY_CONST}ms)`);
 
     // Wait before attempting reconnection
@@ -1641,10 +1762,10 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
 
     try {
       // Force relay mode after first failure in restrictive networks
-      const shouldForceRelay = forceRelayMode || 
-                              networkType === 'restrictive' || 
-                              currentAttempt > 1;
-      
+      const shouldForceRelay = forceRelayMode ||
+        networkType === 'restrictive' ||
+        currentAttempt > 1;
+
       if (shouldForceRelay && !forceRelayMode) {
         console.log('🔒 Enabling relay mode for reconnection attempt');
         setForceRelayMode(true);
@@ -1671,7 +1792,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         try {
           const stream = await getMediaStreamWithFallback();
           localStreamRef.current = stream;
-          
+
           if (localVideoRef.current) {
             localVideoRef.current.srcObject = stream;
           }
@@ -1698,9 +1819,9 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         const baseTimeout = INITIAL_CONNECTION_TIMEOUT_CONST;
         const extensionMultiplier = calculateExponentialBackoffDelay(currentAttempt, CONNECTION_SETUP_EXTENSION_CONST, MAX_RECONNECT_DELAY_CONST);
         const timeoutDuration = Math.min(baseTimeout + extensionMultiplier, baseTimeout + MAX_RECONNECT_DELAY_CONST);
-        
+
         console.log(`Setting reconnection timeout: ${timeoutDuration}ms for attempt ${currentAttempt}`);
-        
+
         const timeout = setTimeout(() => {
           if (!isConnectionEstablished && connectionState !== 'connected') {
             console.log(`Reconnection attempt ${currentAttempt} timed out`);
@@ -1719,7 +1840,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     } catch (error) {
       console.error(`Reconnection attempt ${currentAttempt} failed:`, error);
       setIsReconnecting(false);
-      
+
       if (currentAttempt >= MAX_RECONNECT_ATTEMPTS_CONST) {
         // Enhanced error handling for maximum retry scenarios
         const detailedError = `Unable to reconnect after ${MAX_RECONNECT_ATTEMPTS_CONST} attempts. 
@@ -1739,7 +1860,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         • Try a different browser
         • Disable VPN if active
         • Contact support if issues persist`;
-        
+
         onError(detailedError);
         setConnectionState('failed');
       } else {
@@ -1755,6 +1876,8 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     setReconnectAttempts(0);
     setIsReconnecting(false);
     setIsConnectionEstablished(false); // Reset connection establishment flag
+    setNetworkDetectionFrozen(false); // Reset frozen state for retry
+    setConnectionPhase('pre-connection'); // Reset to pre-connection phase
     setMediaError(null);
     initializeVideoChat();
   };
@@ -1763,48 +1886,47 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     if (partnerTemporarilyDisconnected) {
       return 'Partner temporarily disconnected - waiting for reconnection...';
     }
-    
+
     if (networkRecoveryInProgress) {
       return 'Network recovered - reconnecting to partner...';
     }
-    
+
     if (!isOnline) {
       return 'Network connection lost - waiting for network...';
     }
-    
+
     if (isReconnecting) {
       return `Reconnecting... (Attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS_CONST})`;
     }
-    
-    if (isSessionRestored && connectionState === 'initializing') {
+
+    if (isSessionRestored && connectionState === 'matched') {
       return 'Restoring previous session...';
     }
-    
+
     let baseStatus = '';
     switch (connectionState) {
-      case 'initializing':
+      case 'matched':
         return 'Setting up camera and microphone...';
       case 'connecting':
         return 'Connecting to your partner...';
       case 'connected':
         baseStatus = partnerTemporarilyDisconnected ? 'Partner reconnected!' : 'Connected';
         break;
-      case 'disconnected':
-        return reconnectAttempts > 0 ? 'Connection lost' : 'Disconnected';
-      case 'failed':
-        return 'Connection failed';
+      case 'ended':
+        return 'Call ended';
       default:
         return 'Unknown status';
     }
-    
+
     // Add network quality indicator for connected state
     if (connectionState === 'connected') {
       const qualityText = networkQuality === 'good' ? '🟢' : networkQuality === 'fair' ? '🟡' : '🔴';
       const adaptiveText = adaptiveStreamingEnabled ? ' (Adaptive)' : '';
       const offlineText = !isOnline ? ' (Offline)' : '';
-      return `${baseStatus} ${qualityText}${adaptiveText}${offlineText}`;
+      const frozenText = networkDetectionFrozen ? ' 🔒' : '';
+      return `${baseStatus} ${qualityText}${adaptiveText}${offlineText}${frozenText}`;
     }
-    
+
     return baseStatus;
   };
 
@@ -1812,32 +1934,31 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     if (partnerTemporarilyDisconnected) {
       return 'text-yellow-600';
     }
-    
+
     if (networkRecoveryInProgress) {
       return 'text-blue-600';
     }
-    
+
     if (!isOnline) {
       return 'text-red-600';
     }
-    
+
     if (isReconnecting) {
       return 'text-yellow-600';
     }
-    
-    if (isSessionRestored && connectionState === 'initializing') {
+
+    if (isSessionRestored && connectionState === 'matched') {
       return 'text-blue-600';
     }
-    
+
     switch (connectionState) {
-      case 'initializing':
+      case 'matched':
       case 'connecting':
         return 'text-yellow-600';
       case 'connected':
         return 'text-green-600';
-      case 'disconnected':
-      case 'failed':
-        return 'text-red-600';
+      case 'ended':
+        return 'text-gray-600';
       default:
         return 'text-gray-600';
     }
@@ -1895,7 +2016,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
                 </button>
               </div>
             </div>
-          ) : connectionState === 'failed' && !isReconnecting ? (
+          ) : connectionState === 'ended' && !isReconnecting ? (
             <div className="bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded text-center">
               <h3 className="font-semibold mb-2">Connection Failed</h3>
               <p>Unable to establish video connection with your partner.</p>
@@ -1932,7 +2053,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
                     <div className="text-center text-white">
                       <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-2"></div>
                       <p className="text-sm">
-                        {isReconnecting 
+                        {isReconnecting
                           ? `Reconnecting... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS_CONST})`
                           : 'Waiting for partner...'
                         }
@@ -1954,45 +2075,43 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
                 <div className="absolute bottom-4 left-4 bg-black bg-opacity-50 text-white px-2 py-1 rounded text-sm">
                   You
                 </div>
-                
+
                 {/* Network Status Indicators */}
                 <div className="absolute top-4 right-4 z-20">
                   <div className="flex flex-col gap-2">
                     {/* Network Type Indicator */}
-                    <div className={`px-2 py-1 rounded text-xs font-medium ${
-                      networkType === 'open' ? 'bg-green-100 text-green-800' :
-                      networkType === 'moderate' ? 'bg-yellow-100 text-yellow-800' :
-                      'bg-red-100 text-red-800'
-                    }`}>
+                    <div className={`px-2 py-1 rounded text-xs font-medium ${networkType === 'open' ? 'bg-green-100 text-green-800' :
+                        networkType === 'moderate' ? 'bg-yellow-100 text-yellow-800' :
+                          'bg-red-100 text-red-800'
+                      }`}>
                       Network: {networkType}
                     </div>
-                    
+
                     {/* Relay Mode Indicator */}
                     {forceRelayMode && (
                       <div className="px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800">
                         🔒 Relay Mode
                       </div>
                     )}
-                    
+
                     {/* ICE Restart Attempts */}
                     {iceRestartAttempts > 0 && (
                       <div className="px-2 py-1 rounded text-xs font-medium bg-orange-100 text-orange-800">
                         ICE Restarts: {iceRestartAttempts}
                       </div>
                     )}
-                    
+
                     {/* Connection Quality */}
-                    <div className={`px-2 py-1 rounded text-xs font-medium ${
-                      networkQuality === 'good' ? 'bg-green-100 text-green-800' :
-                      networkQuality === 'fair' ? 'bg-yellow-100 text-yellow-800' :
-                      'bg-red-100 text-red-800'
-                    }`}>
+                    <div className={`px-2 py-1 rounded text-xs font-medium ${networkQuality === 'good' ? 'bg-green-100 text-green-800' :
+                        networkQuality === 'fair' ? 'bg-yellow-100 text-yellow-800' :
+                          'bg-red-100 text-red-800'
+                      }`}>
                       {networkQuality === 'good' ? '📶 Good' :
-                       networkQuality === 'fair' ? '📶 Fair' : '📶 Poor'}
+                        networkQuality === 'fair' ? '📶 Fair' : '📶 Poor'}
                     </div>
                   </div>
                 </div>
-                
+
                 {isVideoDisabled && (
                   <div className="absolute inset-0 flex items-center justify-center bg-gray-700">
                     <div className="text-center text-white">
@@ -2018,11 +2137,10 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
           <button
             onClick={toggleAudio}
             disabled={!localStreamRef.current}
-            className={`p-3 rounded-full transition-colors ${
-              isAudioMuted
+            className={`p-3 rounded-full transition-colors ${isAudioMuted
                 ? 'bg-red-600 hover:bg-red-700 text-white'
                 : 'bg-gray-600 hover:bg-gray-700 text-white'
-            } disabled:opacity-50 disabled:cursor-not-allowed`}
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
             title={isAudioMuted ? 'Unmute microphone' : 'Mute microphone'}
           >
             <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
@@ -2038,11 +2156,10 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
           <button
             onClick={toggleVideo}
             disabled={!localStreamRef.current}
-            className={`p-3 rounded-full transition-colors ${
-              isVideoDisabled
+            className={`p-3 rounded-full transition-colors ${isVideoDisabled
                 ? 'bg-red-600 hover:bg-red-700 text-white'
                 : 'bg-gray-600 hover:bg-gray-700 text-white'
-            } disabled:opacity-50 disabled:cursor-not-allowed`}
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
             title={isVideoDisabled ? 'Enable camera' : 'Disable camera'}
           >
             <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">

@@ -100,6 +100,7 @@ const STUN_SERVERS = [
 
 /**
  * Detect network environment and recommend ICE transport policy
+ * CRITICAL: This should ONLY be called during pre-connection phase
  */
 export async function detectNetworkEnvironment(): Promise<{
   isRestrictive: boolean;
@@ -108,6 +109,8 @@ export async function detectNetworkEnvironment(): Promise<{
   latency: number;
 }> {
   try {
+    console.log('🔍 Running network environment detection (pre-connection only)');
+    
     // Test basic connectivity and latency
     const startTime = Date.now();
     const response = await fetch('/api/health', { 
