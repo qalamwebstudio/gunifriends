@@ -1,208 +1,299 @@
-# Design Document: Fix Auto-Disconnect Issue
+# Design Document: WebRTC Connection Lifecycle Fix
 
 ## Overview
 
-This design addresses the critical auto-disconnect issue where video chat connections terminate after 30-40 seconds despite stable connections. The solution involves refactoring timeout mechanisms, improving heartbeat systems, and enhancing connection state management to ensure connections persist until users explicitly end them.
+This design implements a strict connection lifecycle rule to fix the critical issue where WebRTC calls establish successfully but pre-connection logic continues running, causing healthy calls to be destroyed after 40-60 seconds. The solution centers on a **CALL_IS_CONNECTED** global authority flag that immediately kills ALL pre-connection logic the moment a WebRTC connection is established.
+
+The core principle is surgical precision: once `pc.connectionState === "connected"` OR `pc.iceConnectionState === "connected"`, all setup logic must be permanently terminated to prevent interference with the established call.
 
 ## Architecture
 
-The fix involves modifications across three main components:
+The fix implements a **Hard Connection Lifecycle Gate** with three core components:
 
-1. **VideoChat Component (Frontend)**: Remove aggressive timeouts, improve connection state handling
-2. **Socket Server (Backend)**: Enhance session management and heartbeat processing  
-3. **WebRTC Manager**: Better connection lifecycle management and retry logic
+1. **Global Authority Flag**: `CALL_IS_CONNECTED` - single source of truth for connection state
+2. **Immediate Termination Function**: `killAllPreConnectionLogic()` - centralized cleanup of all pre-connection processes  
+3. **Process Registry**: Tracks all timeouts, intervals, and async controllers for reliable termination
 
 ```mermaid
 graph TB
-    A[VideoChat Component] --> B[WebRTC Manager]
-    A --> C[Socket Connection]
-    C --> D[Socket Server]
-    D --> E[Session Management]
-    D --> F[Heartbeat System]
-    B --> G[Connection State Handler]
-    G --> H[Retry Logic]
-    E --> I[Activity Tracking]
+    A[WebRTC Connection Event] --> B{pc.connectionState === 'connected' OR<br/>pc.iceConnectionState === 'connected'}
+    B -->|Yes| C[Set CALL_IS_CONNECTED = true]
+    C --> D[Execute killAllPreConnectionLogic()]
+    D --> E[Clear initialConnectionTimeout]
+    D --> F[Stop networkDetectionInterval]
+    D --> G[Abort all network probes]
+    D --> H[Disable NAT reclassification]
+    D --> I[Block reconnection logic]
+    D --> J[Prevent ICE policy changes]
+    
+    K[Latency Spike/Timeout] --> L{CALL_IS_CONNECTED?}
+    L -->|true| M[BLOCKED - No Action]
+    L -->|false| N[Allow pre-connection logic]
+    
+    O[Actual WebRTC Failure] --> P{pc.connectionState === 'failed'<br/>OR 'closed'}
+    P -->|Yes| Q[Reset CALL_IS_CONNECTED = false]
+    Q --> R[Allow recovery attempts]
 ```
 
 ## Components and Interfaces
 
-### VideoChat Component Modifications
+### Global Authority Flag Implementation
 
-**Current Issues:**
-- `CONNECTION_TIMEOUT_MS = 45000` creates aggressive 45-second timeout
-- Multiple overlapping timeout mechanisms
-- Reconnection attempts trigger additional timeouts
-- Connection state changes immediately trigger failures
+**CALL_IS_CONNECTED Flag**:
+```typescript
+// Global state - single source of truth
+let CALL_IS_CONNECTED = false;
 
-**Design Changes:**
-- Remove fixed connection timeouts for established connections
-- Implement progressive timeout extension during connection setup
-- Separate initial connection timeouts from established connection monitoring
-- Improve connection state transition handling
+// Connection state monitoring
+function onConnectionStateChange(pc: RTCPeerConnection) {
+  if (pc.connectionState === 'connected' || pc.iceConnectionState === 'connected') {
+    if (!CALL_IS_CONNECTED) {
+      CALL_IS_CONNECTED = true;
+      killAllPreConnectionLogic();
+    }
+  } else if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+    CALL_IS_CONNECTED = false; // Allow recovery for actual failures
+  }
+}
+```
 
-### Socket Server Session Management
+### Centralized Pre-Connection Logic Termination
 
-**Current Issues:**
-- 5-minute session cleanup runs regardless of actual activity
-- `lastActivity` not properly updated during active chats
-- Heartbeat system operates independently of session management
+**Process Registry**:
+```typescript
+interface PreConnectionProcesses {
+  timeouts: Set<NodeJS.Timeout>;
+  intervals: Set<NodeJS.Timeout>;
+  abortControllers: Set<AbortController>;
+  networkProbes: Set<Promise<any>>;
+}
 
-**Design Changes:**
-- Implement proper activity tracking during video chats
-- Separate connection establishment timeouts from session timeouts
-- Enhance heartbeat processing to update activity timestamps
-- Add connection quality monitoring
+const preConnectionRegistry: PreConnectionProcesses = {
+  timeouts: new Set(),
+  intervals: new Set(),
+  abortControllers: new Set(),
+  networkProbes: new Set()
+};
+```
 
-### WebRTC Connection State Handling
+**killAllPreConnectionLogic() Function**:
+```typescript
+function killAllPreConnectionLogic(): void {
+  // Clear all timeouts
+  preConnectionRegistry.timeouts.forEach(timeout => clearTimeout(timeout));
+  preConnectionRegistry.timeouts.clear();
+  
+  // Clear all intervals
+  preConnectionRegistry.intervals.forEach(interval => clearInterval(interval));
+  preConnectionRegistry.intervals.clear();
+  
+  // Abort all async operations
+  preConnectionRegistry.abortControllers.forEach(controller => controller.abort());
+  preConnectionRegistry.abortControllers.clear();
+  
+  // Cancel network probes
+  preConnectionRegistry.networkProbes.clear();
+  
+  console.log('All pre-connection logic terminated - call is connected');
+}
+```
 
-**Current Issues:**
-- Immediate failure on 'disconnected' state
-- Aggressive ICE connection failure handling
-- No distinction between temporary and permanent failures
+### Protected Pre-Connection Logic Registration
 
-**Design Changes:**
-- Implement grace periods for temporary disconnections
-- Add connection quality degradation handling
-- Improve ICE gathering timeout management
-- Better signaling state collision handling
+**Timeout Registration**:
+```typescript
+function registerTimeout(callback: () => void, delay: number): NodeJS.Timeout {
+  if (CALL_IS_CONNECTED) {
+    console.warn('Blocked: Cannot create timeout after connection established');
+    return null;
+  }
+  
+  const timeout = setTimeout(() => {
+    preConnectionRegistry.timeouts.delete(timeout);
+    callback();
+  }, delay);
+  
+  preConnectionRegistry.timeouts.add(timeout);
+  return timeout;
+}
+```
+
+**Network Detection Prevention**:
+```typescript
+function startNetworkDetection(): void {
+  if (CALL_IS_CONNECTED) {
+    console.warn('Blocked: Network detection not allowed after connection');
+    return;
+  }
+  
+  const interval = setInterval(detectNetworkEnvironment, 5000);
+  preConnectionRegistry.intervals.add(interval);
+}
+```
 
 ## Data Models
 
-### Enhanced Session Model
+### Connection Lifecycle State
 ```typescript
-interface EnhancedSession {
-  socketId: string;
-  userId: string;
-  email: string;
-  university: string;
-  status: 'connected' | 'searching' | 'matched' | 'in-call';
-  partnerId?: string;
-  roomId?: string;
-  connectedAt: Date;
-  lastActivity: Date;
-  lastHeartbeat: Date;
-  connectionQuality: 'good' | 'fair' | 'poor';
-  isInActiveCall: boolean; // New field to track active video chat
+interface ConnectionLifecycleState {
+  isConnected: boolean;           // CALL_IS_CONNECTED flag
+  connectionEstablishedAt: Date;  // Timestamp when connection succeeded
+  preConnectionKilled: boolean;   // Confirmation that cleanup executed
+  allowedOperations: {
+    networkDetection: boolean;    // false after connection
+    iceReconfiguration: boolean;  // false after connection
+    reconnectionAttempts: boolean; // false after connection
+    qualityMonitoring: boolean;   // true after connection (getStats only)
+  };
 }
 ```
 
-### Connection State Configuration
+### Pre-Connection Process Registry
 ```typescript
-interface ConnectionConfig {
-  // Initial connection timeouts (for setup phase)
-  initialConnectionTimeout: number; // 60s for initial setup
-  iceGatheringTimeout: number; // 15s for ICE gathering
-  
-  // Established connection monitoring
-  heartbeatInterval: number; // 30s heartbeat
-  sessionInactivityTimeout: number; // 10 minutes of no heartbeat
-  
-  // Retry configuration
-  maxReconnectAttempts: number; // 5 attempts
-  reconnectBaseDelay: number; // 2s base delay
-  reconnectMaxDelay: number; // 30s max delay
-  
-  // Grace periods for temporary issues
-  disconnectionGracePeriod: number; // 10s grace for 'disconnected' state
-  iceFailureGracePeriod: number; // 5s grace for ICE failures
+interface PreConnectionProcess {
+  id: string;
+  type: 'timeout' | 'interval' | 'abortController' | 'networkProbe';
+  handle: NodeJS.Timeout | AbortController | Promise<any>;
+  description: string;
+  createdAt: Date;
+}
+
+interface ProcessRegistry {
+  processes: Map<string, PreConnectionProcess>;
+  isKilled: boolean;
+  killedAt?: Date;
 }
 ```
+
+### Strict Connection Rules Configuration
+```typescript
+interface StrictConnectionConfig {
+  // Connection detection triggers
+  connectionTriggers: {
+    useConnectionState: boolean;    // Monitor pc.connectionState === 'connected'
+    useIceConnectionState: boolean; // Monitor pc.iceConnectionState === 'connected'
+  };
+  
+  // Failure recovery conditions
+  recoveryTriggers: {
+    connectionStateFailed: boolean; // Allow recovery on pc.connectionState === 'failed'
+    connectionStateClosed: boolean; // Allow recovery on pc.connectionState === 'closed'
+    iceConnectionFailed: boolean;   // Allow recovery on pc.iceConnectionState === 'failed'
+  };
+  
+  // Blocked operations after connection
+  blockedAfterConnection: {
+    initialConnectionTimeout: boolean;
+    networkDetectionInterval: boolean;
+    natReclassification: boolean;
+    iceTransportPolicyChange: boolean;
+    peerConnectionRecreation: boolean;
+    reconnectionLogic: boolean;
+  };
+}
 
 ## Correctness Properties
 
 *A property is a characteristic or behavior that should hold true across all valid executions of a system-essentially, a formal statement about what the system should do. Properties serve as the bridge between human-readable specifications and machine-verifiable correctness guarantees.*
 
-### Property Reflection
-
-After analyzing all acceptance criteria, I identified several areas where properties can be consolidated:
-
-- Properties 1.1, 1.4, and 1.5 all relate to eliminating time-based disconnections and can be combined into a comprehensive "no arbitrary timeouts" property
-- Properties 2.1 and 2.2 both relate to heartbeat functionality and can be combined into a heartbeat round-trip property
-- Properties 3.1 and 3.2 both relate to retry behavior and can be combined into a general retry property
-- Properties 5.1, 5.2, and 5.3 all relate to connection persistence and can be combined into a comprehensive persistence property
-
 ### Converting EARS to Properties
 
 Based on the prework analysis, here are the consolidated correctness properties:
 
-**Property 1: No Arbitrary Timeout Disconnections**
-*For any* established WebRTC connection that is actively maintained by heartbeats, the system should not automatically disconnect the connection based solely on elapsed time duration
-**Validates: Requirements 1.1, 1.4, 1.5**
+**Property 1: Connection State Authority**
+*For any* RTCPeerConnection with connectionState === "connected" OR iceConnectionState === "connected", the CALL_IS_CONNECTED flag should be set to true immediately
+**Validates: Requirements 1.1**
 
-**Property 2: Heartbeat Activity Tracking**
-*For any* heartbeat signal sent during an active video chat session, the system should update the user's last activity timestamp and maintain the session as active
-**Validates: Requirements 2.1, 2.2, 2.3**
+**Property 2: Immediate Cleanup Execution**
+*For any* transition of CALL_IS_CONNECTED from false to true, the killAllPreConnectionLogic() function should be executed exactly once immediately
+**Validates: Requirements 1.2**
 
-**Property 3: Connection State Retry Behavior**
-*For any* WebRTC connection that enters a 'disconnected' or 'failed' state, the system should attempt reconnection with appropriate retry logic before terminating the session
-**Validates: Requirements 3.1, 3.2, 3.5**
+**Property 3: Complete Process Termination**
+*For any* registered pre-connection processes (timeouts, intervals, abort controllers), calling killAllPreConnectionLogic() should clear/abort all of them and leave the registry empty
+**Validates: Requirements 1.3, 1.4, 5.3**
 
-**Property 4: Exponential Backoff Retry Delays**
-*For any* sequence of connection retry attempts, the delay between attempts should follow exponential backoff pattern with a reasonable maximum delay
-**Validates: Requirements 4.2**
+**Property 4: Pre-Connection Logic Blocking**
+*For any* attempt to start pre-connection logic (timeouts, network detection, NAT reclassification, ICE policy changes) when CALL_IS_CONNECTED = true, the attempt should be blocked and no process should be created
+**Validates: Requirements 2.1, 2.2, 2.3, 2.4, 2.5, 3.1, 3.2**
 
-**Property 5: Connection Persistence Through Disruptions**
-*For any* temporary network disruption, browser focus change, or quality degradation, the WebRTC connection should persist and recover without terminating the chat session
-**Validates: Requirements 5.1, 5.2, 5.3, 5.4, 5.5**
+**Property 5: Reconnection Logic Prevention**
+*For any* event that would normally trigger reconnection (latency spikes, visibility changes, temporary disconnections) when CALL_IS_CONNECTED = true, no reconnection logic should execute
+**Validates: Requirements 1.5, 3.5, 4.3, 4.4**
 
-**Property 6: Activity-Based Session Management**
-*For any* user session, timeout calculations should be based on actual user inactivity (lack of heartbeats) rather than connection establishment time or duration
-**Validates: Requirements 2.3, 2.4, 2.5**
+**Property 6: Quality Monitoring Restriction**
+*For any* quality adaptation operation when CALL_IS_CONNECTED = true, only getStats() method should be used and no connection modification methods should be called
+**Validates: Requirements 3.4**
 
-**Property 7: Adaptive Quality Without Disconnection**
-*For any* connection quality degradation event, the system should adapt video quality parameters while maintaining the underlying WebRTC connection
+**Property 7: Peer Connection Protection**
+*For any* attempt to recreate RTCPeerConnection objects when CALL_IS_CONNECTED = true, the attempt should be blocked and the existing connection should remain unchanged
 **Validates: Requirements 3.3**
 
-**Property 8: Initial Connection Timeout Extension**
-*For any* initial WebRTC connection setup that exceeds standard timeouts, the system should extend timeouts or retry connection establishment rather than immediately failing
-**Validates: Requirements 1.2, 4.1**
+**Property 8: Failure State Recovery**
+*For any* RTCPeerConnection with connectionState === "failed" OR connectionState === "closed", connection recovery attempts should be allowed and CALL_IS_CONNECTED should be reset to false
+**Validates: Requirements 4.1, 4.2**
+
+**Property 9: Process Registry Maintenance**
+*For any* pre-connection process created (timeout, interval, abort controller), it should be automatically registered in the process registry and remain there until killAllPreConnectionLogic() is called
+**Validates: Requirements 5.1, 5.2, 5.4**
+
+**Property 10: Lifecycle Gate Enforcement**
+*For any* attempt to restart pre-connection logic after killAllPreConnectionLogic() has been executed, the attempt should be permanently blocked until CALL_IS_CONNECTED is reset to false
+**Validates: Requirements 5.5**
 
 ## Error Handling
 
-### Timeout Management
-- Remove fixed timeouts for established connections
-- Implement progressive timeout extension during initial setup
-- Use activity-based timeouts only for truly inactive sessions
-- Provide clear user feedback during extended connection attempts
+### Connection Lifecycle Gate Failures
+- If CALL_IS_CONNECTED flag fails to set, log error and attempt manual cleanup
+- If killAllPreConnectionLogic() fails to execute, retry once and log failure
+- If process registry becomes corrupted, reinitialize and log warning
+- Provide fallback mechanism to manually trigger lifecycle gate
 
-### Connection State Transitions
-- Add grace periods for temporary 'disconnected' states
-- Implement retry logic for ICE connection failures
-- Distinguish between recoverable and permanent connection issues
-- Prevent cascading timeout failures during reconnection
+### Process Termination Failures
+- If timeout/interval clearing fails, attempt direct handle invalidation
+- If AbortController.abort() fails, log error and continue with other cleanup
+- If network probe cancellation fails, mark as abandoned and continue
+- Never allow partial cleanup - either all processes terminate or none
 
-### Session Recovery
-- Maintain session state during temporary disconnections
-- Implement session restoration for reconnected users
-- Handle browser tab focus changes gracefully
-- Preserve chat context across connection recovery
+### Connection State Monitoring Failures
+- If connection state events stop firing, implement polling fallback
+- If multiple connection state changes occur rapidly, debounce to prevent race conditions
+- If connection state becomes inconsistent, prioritize actual WebRTC state over internal flags
+- Implement connection state validation before making lifecycle decisions
+
+### Recovery Logic Failures
+- If CALL_IS_CONNECTED reset fails during actual failures, force reset and log error
+- If recovery attempts are blocked incorrectly, provide manual override mechanism
+- If connection state detection fails, default to allowing recovery for safety
+- Implement recovery state validation to prevent infinite loops
 
 ## Testing Strategy
 
 ### Dual Testing Approach
-This fix requires both unit tests and property-based tests to ensure comprehensive coverage:
+This fix requires both unit tests and property-based tests to ensure the strict connection lifecycle rules are enforced:
 
 **Unit Tests** will verify:
-- Specific timeout value configurations
-- Error message content and user feedback
-- Integration between components during state transitions
-- Edge cases like maximum retry attempts reached
+- Specific connection state transitions and flag setting
+- Error handling for cleanup failures and edge cases
+- Integration between lifecycle gate and existing WebRTC components
+- Edge cases like rapid connection state changes or registry corruption
 
 **Property-Based Tests** will verify:
-- Universal properties across all connection scenarios
-- Timeout behavior across various network conditions
-- Heartbeat and activity tracking across different usage patterns
-- Connection persistence across various disruption types
+- Universal properties across all connection scenarios and timing variations
+- Process termination behavior across various pre-connection logic combinations
+- Blocking behavior across different types of reconnection triggers
+- Registry management across various process creation and cleanup patterns
 
 ### Property-Based Testing Configuration
 - Use Jest with fast-check library for property-based testing
-- Configure each test to run minimum 100 iterations
+- Configure each test to run minimum 100 iterations due to timing-sensitive nature
 - Each property test must reference its design document property
 - Tag format: **Feature: fix-auto-disconnect, Property {number}: {property_text}**
 
 ### Testing Focus Areas
-1. **Connection Lifecycle Testing**: Verify connections persist beyond previous timeout periods
-2. **Heartbeat System Testing**: Validate activity tracking and session management
-3. **Retry Logic Testing**: Ensure proper exponential backoff and retry behavior
-4. **State Transition Testing**: Verify graceful handling of connection state changes
-5. **Network Simulation Testing**: Test behavior under various network conditions
+1. **Connection Lifecycle Gate Testing**: Verify immediate flag setting and cleanup execution
+2. **Process Termination Testing**: Validate complete cleanup of all registered processes
+3. **Blocking Logic Testing**: Ensure all pre-connection logic is blocked after connection
+4. **Recovery State Testing**: Verify proper recovery behavior for actual failures only
+5. **Registry Management Testing**: Test process registration and cleanup coordination
+6. **Race Condition Testing**: Test behavior under rapid connection state changes
+7. **Failure Simulation Testing**: Test error handling and fallback mechanisms

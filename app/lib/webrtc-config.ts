@@ -213,23 +213,49 @@ export async function testWebRTCConnectivity(): Promise<{
  */
 async function testSTUNConnectivity(): Promise<boolean> {
   return new Promise((resolve) => {
+    // Direct RTCPeerConnection creation is acceptable here since this is for network testing
+    // before any actual WebRTC connection is established
     const testPeerConnection = new RTCPeerConnection({
       iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
     });
 
     let resolved = false;
-    const timeout = setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        testPeerConnection.close();
-        resolve(false);
+    
+    // Import registerTimeout to use the blocking mechanism
+    import('./webrtc-manager').then(({ registerTimeout }) => {
+      const timeout = registerTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          testPeerConnection.close();
+          resolve(false);
+        }
+      }, 8000, 'STUN connectivity test timeout'); // Reduced timeout
+      
+      if (!timeout) {
+        console.log('⏭️ STUN connectivity test timeout blocked - connection already established');
+        // If timeout is blocked, resolve immediately with false
+        if (!resolved) {
+          resolved = true;
+          testPeerConnection.close();
+          resolve(false);
+        }
       }
-    }, 8000); // Reduced timeout
+    }).catch(() => {
+      // Fallback if import fails - use direct setTimeout for network testing
+      // This is acceptable since network testing happens before connection establishment
+      const timeout = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          testPeerConnection.close();
+          resolve(false);
+        }
+      }, 8000);
+    });
 
     testPeerConnection.onicecandidate = (event) => {
       if (event.candidate && event.candidate.type === 'srflx' && !resolved) {
         resolved = true;
-        clearTimeout(timeout);
+        // Note: We can't clear the registered timeout directly, but it will be cleaned up by the lifecycle system
         testPeerConnection.close();
         resolve(true);
       }
@@ -242,7 +268,7 @@ async function testSTUNConnectivity(): Promise<boolean> {
     }).catch(() => {
       if (!resolved) {
         resolved = true;
-        clearTimeout(timeout);
+        // Note: We can't clear the registered timeout directly, but it will be cleaned up by the lifecycle system
         testPeerConnection.close();
         resolve(false);
       }
@@ -296,7 +322,18 @@ export async function getMediaStreamWithFallback(): Promise<MediaStream> {
       // Add timeout to prevent hanging
       const mediaPromise = navigator.mediaDevices.getUserMedia(configurations[i]);
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('Media access timeout')), 10000);
+        // Import registerTimeout to use the blocking mechanism
+        import('./webrtc-manager').then(({ registerTimeout }) => {
+          const timeoutHandle = registerTimeout(() => reject(new Error('Media access timeout')), 10000, `Media access timeout (config ${i + 1})`);
+          if (!timeoutHandle) {
+            // If timeout is blocked, don't reject - let the media promise resolve naturally
+            console.log('⏭️ Media access timeout blocked - connection already established');
+          }
+        }).catch(() => {
+          // Fallback if import fails - use direct setTimeout for media access
+          // This is acceptable since media access happens before connection establishment
+          setTimeout(() => reject(new Error('Media access timeout')), 10000);
+        });
       });
       
       const stream = await Promise.race([mediaPromise, timeoutPromise]);
@@ -326,7 +363,20 @@ export async function getMediaStreamWithFallback(): Promise<MediaStream> {
       
       // Add small delay between attempts
       if (i < configurations.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => {
+          // Import registerTimeout to use the blocking mechanism
+          import('./webrtc-manager').then(({ registerTimeout }) => {
+            const delayTimeout = registerTimeout(() => resolve(undefined), 500, `Media configuration retry delay (attempt ${i + 1})`);
+            if (!delayTimeout) {
+              // If timeout is blocked, resolve immediately
+              resolve(undefined);
+            }
+          }).catch(() => {
+            // Fallback if import fails - use direct setTimeout for retry delay
+            // This is acceptable since retry delays happen before connection establishment
+            setTimeout(() => resolve(undefined), 500);
+          });
+        });
       }
     }
   }
@@ -375,9 +425,22 @@ export class ConnectionQualityMonitor {
   }
 
   start() {
-    this.intervalId = setInterval(() => {
-      this.checkQuality();
-    }, 5000); // Check every 5 seconds
+    // Import registerInterval to use the blocking mechanism
+    import('./webrtc-manager').then(({ registerInterval }) => {
+      this.intervalId = registerInterval(() => {
+        this.checkQuality();
+      }, 5000, 'Connection quality monitoring interval'); // Check every 5 seconds
+      
+      if (!this.intervalId) {
+        console.log('⏭️ Connection quality monitoring interval blocked - connection already established');
+      }
+    }).catch(() => {
+      // Fallback if import fails - use direct setInterval for quality monitoring
+      // This should be rare and quality monitoring can continue even after connection
+      this.intervalId = setInterval(() => {
+        this.checkQuality();
+      }, 5000);
+    });
   }
 
   stop() {

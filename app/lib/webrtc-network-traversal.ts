@@ -101,6 +101,8 @@ const STUN_SERVERS = [
 /**
  * Detect network environment and recommend ICE transport policy
  * CRITICAL: This should ONLY be called during pre-connection phase
+ * Requirements: 2.2, 2.3 - Block network detection startup when connected
+ * Requirements: 5.5 - Lifecycle gate enforcement
  */
 export async function detectNetworkEnvironment(): Promise<{
   isRestrictive: boolean;
@@ -108,6 +110,37 @@ export async function detectNetworkEnvironment(): Promise<{
   networkType: 'open' | 'moderate' | 'restrictive';
   latency: number;
 }> {
+  // Import WebRTCManager to check lifecycle gate enforcement
+  const { WebRTCManager, enforceNetworkDetectionGate } = await import('./webrtc-manager');
+  
+  // Requirements 5.5 - Lifecycle gate enforcement for network detection
+  if (enforceNetworkDetectionGate()) {
+    console.warn('🚫 Network detection blocked by lifecycle gate');
+    console.warn('Returning cached restrictive network settings to prevent interference');
+    
+    // Return safe restrictive settings to prevent any network changes
+    return {
+      isRestrictive: true,
+      recommendedPolicy: 'relay',
+      networkType: 'restrictive',
+      latency: 0
+    };
+  }
+  
+  // Legacy check for backward compatibility
+  if (WebRTCManager.getCallIsConnected()) {
+    console.warn('🚫 Blocked: Network detection not allowed after connection established');
+    console.warn('Returning cached restrictive network settings to prevent interference');
+    
+    // Return safe restrictive settings to prevent any network changes
+    return {
+      isRestrictive: true,
+      recommendedPolicy: 'relay',
+      networkType: 'restrictive',
+      latency: 0
+    };
+  }
+
   try {
     console.log('🔍 Running network environment detection (pre-connection only)');
     
@@ -161,8 +194,43 @@ export async function detectNetworkEnvironment(): Promise<{
 
 /**
  * Get optimized WebRTC configuration for network traversal
+ * Requirements: 2.4, 2.5, 3.1, 3.2 - Prevent NAT reclassification and ICE policy changes after connection
+ * Requirements: 5.5 - Lifecycle gate enforcement
  */
 export async function getNetworkTraversalConfig(forceRelay: boolean = false): Promise<WebRTCConfig> {
+  // Import WebRTCManager to check lifecycle gate enforcement
+  const { WebRTCManager, enforceICEConfigurationGate } = await import('./webrtc-manager');
+  
+  // Requirements 5.5 - Lifecycle gate enforcement for ICE configuration changes
+  if (enforceICEConfigurationGate()) {
+    console.warn('🚫 Network traversal config changes blocked by lifecycle gate');
+    console.warn('Connection is established - network configuration should not be modified');
+    
+    // Return a minimal safe configuration that won't interfere with established connection
+    return {
+      iceServers: [], // Empty - don't provide new ICE servers for established connection
+      iceTransportPolicy: 'all', // Safe default
+      iceCandidatePoolSize: 0, // Don't gather new candidates
+      bundlePolicy: 'max-bundle',
+      rtcpMuxPolicy: 'require'
+    };
+  }
+  
+  // Legacy check for backward compatibility
+  if (WebRTCManager.getCallIsConnected()) {
+    console.warn('🚫 Blocked: Network traversal config changes not allowed after connection established');
+    console.warn('Connection is established - network configuration should not be modified');
+    
+    // Return a minimal safe configuration that won't interfere with established connection
+    return {
+      iceServers: [], // Empty - don't provide new ICE servers for established connection
+      iceTransportPolicy: 'all', // Safe default
+      iceCandidatePoolSize: 0, // Don't gather new candidates
+      bundlePolicy: 'max-bundle',
+      rtcpMuxPolicy: 'require'
+    };
+  }
+
   const networkEnv = await detectNetworkEnvironment();
   
   // Build ICE servers array
@@ -276,22 +344,72 @@ async function testSTUNConnectivity(): Promise<{
     const startTime = Date.now();
     const candidates: string[] = [];
     
+    // Direct RTCPeerConnection creation is acceptable here since this is for network testing
+    // before any actual WebRTC connection is established
     const testPeerConnection = new RTCPeerConnection({
       iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
     });
 
     let resolved = false;
-    const timeout = setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        testPeerConnection.close();
-        resolve({
-          hasSTUN: false,
-          candidates,
-          latency: Date.now() - startTime
-        });
+    
+    // Import registerTimeout to use the blocking mechanism
+    import('./webrtc-manager').then(({ registerTimeout, enforceTimeoutCreationGate }) => {
+      // Check lifecycle gate enforcement first
+      if (enforceTimeoutCreationGate()) {
+        console.log('⏭️ STUN connectivity test timeout blocked by lifecycle gate - connection already established');
+        // If timeout creation is blocked, resolve immediately
+        if (!resolved) {
+          resolved = true;
+          testPeerConnection.close();
+          resolve({
+            hasSTUN: false,
+            candidates,
+            latency: Date.now() - startTime
+          });
+        }
+        return;
       }
-    }, 10000);
+      
+      const timeout = registerTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          testPeerConnection.close();
+          resolve({
+            hasSTUN: false,
+            candidates,
+            latency: Date.now() - startTime
+          });
+        }
+      }, 10000, 'STUN connectivity test timeout');
+      
+      if (!timeout) {
+        console.log('⏭️ STUN connectivity test timeout blocked - connection already established');
+        // If timeout is blocked, resolve immediately
+        if (!resolved) {
+          resolved = true;
+          testPeerConnection.close();
+          resolve({
+            hasSTUN: false,
+            candidates,
+            latency: Date.now() - startTime
+          });
+        }
+      }
+    }).catch(() => {
+      // Fallback if import fails - use direct setTimeout for network testing
+      // This is acceptable since network testing happens before connection establishment
+      const timeout = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          testPeerConnection.close();
+          resolve({
+            hasSTUN: false,
+            candidates,
+            latency: Date.now() - startTime
+          });
+        }
+      }, 10000);
+    });
 
     testPeerConnection.onicecandidate = (event) => {
       if (event.candidate && event.candidate.type) {
@@ -299,7 +417,7 @@ async function testSTUNConnectivity(): Promise<{
         
         if (event.candidate.type === 'srflx' && !resolved) {
           resolved = true;
-          clearTimeout(timeout);
+          // Note: We can't clear the registered timeout directly, but it will be cleaned up by the lifecycle system
           testPeerConnection.close();
           resolve({
             hasSTUN: true,
@@ -317,7 +435,7 @@ async function testSTUNConnectivity(): Promise<{
     }).catch(() => {
       if (!resolved) {
         resolved = true;
-        clearTimeout(timeout);
+        // Note: We can't clear the registered timeout directly, but it will be cleaned up by the lifecycle system
         testPeerConnection.close();
         resolve({
           hasSTUN: false,
@@ -374,6 +492,8 @@ async function testSingleTURNServer(turnConfig: TURNServerConfig): Promise<{
 }> {
   return new Promise((resolve) => {
     const candidates: string[] = [];
+    // Direct RTCPeerConnection creation is acceptable here since this is for TURN testing
+    // before any actual WebRTC connection is established
     const testPeerConnection = new RTCPeerConnection({
       iceServers: [{
         urls: Array.isArray(turnConfig.urls) ? turnConfig.urls[0] : turnConfig.urls,
@@ -383,13 +503,49 @@ async function testSingleTURNServer(turnConfig: TURNServerConfig): Promise<{
     });
 
     let resolved = false;
-    const timeout = setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        testPeerConnection.close();
-        resolve({ working: false, candidates });
+    
+    // Import registerTimeout to use the blocking mechanism
+    import('./webrtc-manager').then(({ registerTimeout, enforceTimeoutCreationGate }) => {
+      // Check lifecycle gate enforcement first
+      if (enforceTimeoutCreationGate()) {
+        console.log('⏭️ TURN server test timeout blocked by lifecycle gate - connection already established');
+        // If timeout creation is blocked, resolve immediately
+        if (!resolved) {
+          resolved = true;
+          testPeerConnection.close();
+          resolve({ working: false, candidates });
+        }
+        return;
       }
-    }, 15000); // Longer timeout for TURN
+      
+      const timeout = registerTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          testPeerConnection.close();
+          resolve({ working: false, candidates });
+        }
+      }, 15000, 'TURN server test timeout'); // Longer timeout for TURN
+      
+      if (!timeout) {
+        console.log('⏭️ TURN server test timeout blocked - connection already established');
+        // If timeout is blocked, resolve immediately
+        if (!resolved) {
+          resolved = true;
+          testPeerConnection.close();
+          resolve({ working: false, candidates });
+        }
+      }
+    }).catch(() => {
+      // Fallback if import fails - use direct setTimeout for TURN testing
+      // This is acceptable since TURN testing happens before connection establishment
+      const timeout = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          testPeerConnection.close();
+          resolve({ working: false, candidates });
+        }
+      }, 15000);
+    });
 
     testPeerConnection.onicecandidate = (event) => {
       if (event.candidate && event.candidate.type) {
@@ -397,7 +553,7 @@ async function testSingleTURNServer(turnConfig: TURNServerConfig): Promise<{
         
         if (event.candidate.type === 'relay' && !resolved) {
           resolved = true;
-          clearTimeout(timeout);
+          // Note: We can't clear the registered timeout directly, but it will be cleaned up by the lifecycle system
           testPeerConnection.close();
           resolve({ working: true, candidates });
         }
@@ -411,7 +567,7 @@ async function testSingleTURNServer(turnConfig: TURNServerConfig): Promise<{
     }).catch(() => {
       if (!resolved) {
         resolved = true;
-        clearTimeout(timeout);
+        // Note: We can't clear the registered timeout directly, but it will be cleaned up by the lifecycle system
         testPeerConnection.close();
         resolve({ working: false, candidates });
       }
@@ -421,12 +577,23 @@ async function testSingleTURNServer(turnConfig: TURNServerConfig): Promise<{
 
 /**
  * Enhanced ICE restart with proper candidate gathering
+ * Requirements: 5.5 - Lifecycle gate enforcement for ICE restart
  */
 export async function performICERestart(
   peerConnection: RTCPeerConnection,
   isInitiator: boolean
 ): Promise<boolean> {
   try {
+    // Import WebRTCManager to check lifecycle gate enforcement
+    const { isICERestartBlocked, enforceICEConfigurationGate } = await import('./webrtc-manager');
+    
+    // Requirements 5.5 - Lifecycle gate enforcement for ICE restart
+    if (enforceICEConfigurationGate() || isICERestartBlocked()) {
+      console.warn('🚫 ICE restart blocked by lifecycle gate - connection already established');
+      console.warn('ICE restart should not be performed on established connections');
+      return false;
+    }
+    
     console.log('🔄 Performing ICE restart for network traversal...');
     
     if (peerConnection.signalingState !== 'stable') {

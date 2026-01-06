@@ -1,118 +1,152 @@
-# Implementation Plan: Fix Auto-Disconnect Issue
+# Implementation Plan: WebRTC Connection Lifecycle Fix
 
 ## Overview
 
-This implementation plan addresses the auto-disconnect issue by systematically removing aggressive timeouts, improving heartbeat systems, and enhancing connection state management. The approach focuses on making minimal, targeted changes to fix the core issue while maintaining system stability.
+This implementation plan applies surgical fixes to implement a strict connection lifecycle rule. The approach centers on creating a global CALL_IS_CONNECTED authority flag that immediately kills ALL pre-connection logic the moment a WebRTC connection is established. Each task focuses on minimal, precise changes to fix the root cause without rewriting the entire application.
 
 ## Tasks
 
-- [x] 1. Fix VideoChat Component Timeout Issues
-  - Remove aggressive CONNECTION_TIMEOUT_MS for established connections
-  - Implement progressive timeout extension during initial connection setup
-  - Separate initial connection timeouts from established connection monitoring
-  - _Requirements: 1.1, 1.2, 1.4_
+- [x] 1. Implement Global Connection Authority Flag
+  - Create CALL_IS_CONNECTED global flag in WebRTC manager
+  - Add connection state monitoring for both connectionState and iceConnectionState
+  - Implement immediate flag setting when either state becomes "connected"
+  - _Requirements: 1.1_
 
-- [ ] 1.1 Write property test for no arbitrary timeout disconnections
+- [x] 1.1 Write property test for connection state authority
 
-  - **Property 1: No Arbitrary Timeout Disconnections**
-  - **Validates: Requirements 1.1, 1.4, 1.5**
+  - **Property 1: Connection State Authority**
+  - **Validates: Requirements 1.1**
 
-- [x] 1.2 Write property test for initial connection timeout extension
+- [x] 2. Create Pre-Connection Process Registry
+  - Implement PreConnectionProcesses interface and registry
+  - Add registration functions for timeouts, intervals, and abort controllers
+  - Create process tracking with unique IDs and metadata
+  - _Requirements: 5.1, 5.2, 5.4_
 
-  - **Property 8: Initial Connection Timeout Extension**
-  - **Validates: Requirements 1.2, 4.1**
+- [ ]* 2.1 Write property test for process registry maintenance
+  - **Property 9: Process Registry Maintenance**
+  - **Validates: Requirements 5.1, 5.2, 5.4**
 
-- [x] 2. Enhance Socket Server Session Management
-  - Modify session cleanup logic to consider active video chat status
-  - Improve heartbeat processing to update activity timestamps during calls
-  - Add isInActiveCall flag to session tracking
-  - _Requirements: 1.5, 2.2, 2.3_
+- [x] 3. Implement killAllPreConnectionLogic() Function
+  - Create centralized cleanup function that clears all registered processes
+  - Add timeout clearing, interval clearing, and abort controller termination
+  - Implement registry cleanup and logging
+  - _Requirements: 1.2, 1.3, 1.4_
 
-- [ ]* 2.1 Write property test for heartbeat activity tracking
-  - **Property 2: Heartbeat Activity Tracking**
-  - **Validates: Requirements 2.1, 2.2, 2.3**
+- [ ]* 3.1 Write property test for immediate cleanup execution
+  - **Property 2: Immediate Cleanup Execution**
+  - **Validates: Requirements 1.2**
 
-- [ ]* 2.2 Write property test for activity-based session management
-  - **Property 6: Activity-Based Session Management**
-  - **Validates: Requirements 2.3, 2.4, 2.5**
+- [ ]* 3.2 Write property test for complete process termination
+  - **Property 3: Complete Process Termination**
+  - **Validates: Requirements 1.3, 1.4, 5.3**
 
-- [x] 3. Improve WebRTC Connection State Handling
-  - Add grace periods for temporary 'disconnected' states
-  - Implement better retry logic for ICE connection failures
-  - Prevent multiple timeout timers during reconnection attempts
-  - _Requirements: 3.1, 3.2, 3.4, 3.5_
+- [x] 4. Add Connection Lifecycle Gate Integration
+  - Integrate killAllPreConnectionLogic() call with connection state changes
+  - Ensure immediate execution when CALL_IS_CONNECTED becomes true
+  - Add error handling for cleanup failures
+  - _Requirements: 1.2_
 
-- [ ]* 3.1 Write property test for connection state retry behavior
-  - **Property 3: Connection State Retry Behavior**
-  - **Validates: Requirements 3.1, 3.2, 3.5**
+- [x] 5. Implement Pre-Connection Logic Blocking
+  - Modify timeout/interval creation functions to check CALL_IS_CONNECTED
+  - Block network detection startup when connected
+  - Prevent NAT reclassification and ICE policy changes after connection
+  - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 3.1, 3.2_
 
-- [ ]* 3.2 Write property test for adaptive quality without disconnection
-  - **Property 7: Adaptive Quality Without Disconnection**
+- [ ]* 5.1 Write property test for pre-connection logic blocking
+  - **Property 4: Pre-Connection Logic Blocking**
+  - **Validates: Requirements 2.1, 2.2, 2.3, 2.4, 2.5, 3.1, 3.2**
+
+- [x] 6. Implement Reconnection Logic Prevention
+  - Block reconnection attempts when CALL_IS_CONNECTED = true
+  - Prevent latency spike handlers from triggering reconnection
+  - Block visibility change handlers from reconnecting
+  - _Requirements: 1.5, 3.5, 4.3, 4.4_
+
+- [ ]* 6.1 Write property test for reconnection logic prevention
+  - **Property 5: Reconnection Logic Prevention**
+  - **Validates: Requirements 1.5, 3.5, 4.3, 4.4**
+
+- [x] 7. Add Peer Connection Protection
+  - Prevent RTCPeerConnection recreation when connected
+  - Block connection modification methods except getStats()
+  - Implement quality monitoring restrictions
+  - _Requirements: 3.3, 3.4_
+
+- [ ]* 7.1 Write property test for peer connection protection
+  - **Property 7: Peer Connection Protection**
   - **Validates: Requirements 3.3**
 
-- [x] 4. Checkpoint - Test timeout fixes
-  - Ensure all timeout-related changes work correctly
-  - Verify connections persist beyond previous 30-40 second limit
-  - Ask the user if questions arise
+- [ ]* 7.2 Write property test for quality monitoring restriction
+  - **Property 6: Quality Monitoring Restriction**
+  - **Validates: Requirements 3.4**
 
-- [x] 5. Optimize Retry Logic and Backoff Strategy
-  - Implement exponential backoff with reasonable maximum delays
-  - Update retry attempt limits and delay calculations
-  - Improve error handling for maximum retry scenarios
-  - _Requirements: 4.2, 4.5_
+- [x] 8. Implement Failure State Recovery Logic
+  - Reset CALL_IS_CONNECTED to false for "failed" and "closed" states
+  - Allow recovery attempts only for actual WebRTC failures
+  - Distinguish between temporary disconnection and permanent failure
+  - _Requirements: 4.1, 4.2, 4.5_
 
-- [ ]* 5.1 Write property test for exponential backoff retry delays
-  - **Property 4: Exponential Backoff Retry Delays**
-  - **Validates: Requirements 4.2**
+- [ ]* 8.1 Write property test for failure state recovery
+  - **Property 8: Failure State Recovery**
+  - **Validates: Requirements 4.1, 4.2**
 
-- [ ]* 5.2 Write unit tests for maximum retry error handling
-  - Test error messages and recovery options when max retries reached
-  - _Requirements: 4.5_
-
-- [x] 6. Enhance Connection Persistence
-  - Improve handling of browser tab focus changes
-  - Add better network interruption recovery
-  - Implement session state restoration for reconnections
-  - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5_
-
-- [ ]* 6.1 Write property test for connection persistence through disruptions
-  - **Property 5: Connection Persistence Through Disruptions**
-  - **Validates: Requirements 5.1, 5.2, 5.3, 5.4, 5.5**
-
-- [ ]* 6.2 Write unit tests for session restoration
-  - Test session state preservation and restoration after reconnection
+- [x] 9. Add Lifecycle Gate Enforcement
+  - Implement permanent blocking of pre-connection logic after cleanup
+  - Prevent restart of any pre-connection processes until reset
+  - Add enforcement checks to all pre-connection entry points
   - _Requirements: 5.5_
 
-- [x] 7. Update Configuration Values
-  - Adjust timeout constants to more reasonable values
-  - Update heartbeat intervals for better activity tracking
-  - Configure grace periods for temporary connection issues
-  - _Requirements: 4.1, 4.4_
+- [ ]* 9.1 Write property test for lifecycle gate enforcement
+  - **Property 10: Lifecycle Gate Enforcement**
+  - **Validates: Requirements 5.5**
 
-- [ ]* 7.1 Write unit tests for configuration values
-  - Test that timeout values are appropriate for real-world conditions
-  - Verify heartbeat intervals and grace periods
-  - _Requirements: 4.1, 4.4_
+- [x] 10. Checkpoint - Test connection lifecycle gate
+  - Verify CALL_IS_CONNECTED flag works correctly
+  - Test that all pre-connection logic stops after connection
+  - Ensure connections remain stable beyond previous timeout periods
+  - Ask the user if questions arise
 
-- [x] 8. Final Integration and Testing
-  - Integrate all changes across VideoChat component and Socket server
-  - Ensure proper coordination between client and server timeout handling
-  - Test end-to-end connection persistence
+- [x] 11. Update Existing WebRTC Components
+  - Modify VideoChat component to use new lifecycle system
+  - Update WebRTC manager to integrate with process registry
+  - Replace existing timeout logic with registry-based approach
   - _Requirements: All requirements_
 
-- [ ]* 8.1 Write integration tests for complete fix
-  - Test full connection lifecycle with new timeout behavior
-  - Verify client-server coordination during connection management
+- [ ]* 11.1 Write integration tests for WebRTC component updates
+  - Test integration between VideoChat component and lifecycle gate
+  - Verify WebRTC manager properly uses process registry
   - _Requirements: All requirements_
 
-- [x] 9. Final checkpoint - Ensure all tests pass
+- [x] 12. Add Error Handling and Fallbacks
+  - Implement cleanup failure recovery mechanisms
+  - Add connection state monitoring fallbacks
+  - Create manual override mechanisms for edge cases
+  - _Requirements: Error handling from design_
+
+- [ ]* 12.1 Write unit tests for error handling
+  - Test cleanup failure scenarios
+  - Test connection state monitoring failures
+  - Test manual override mechanisms
+  - _Requirements: Error handling from design_
+
+- [x] 13. Final Integration and Validation
+  - Integrate all lifecycle components across the application
+  - Test end-to-end connection stability with new lifecycle rules
+  - Verify no pre-connection logic runs after successful connection
+  - _Requirements: All requirements_
+
+- [ ] 14. Final checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise
 
 ## Notes
 
 - Tasks marked with `*` are optional and can be skipped for faster MVP
 - Each task references specific requirements for traceability
-- Focus on minimal changes to fix the core timeout issue
+- Focus on surgical, minimal changes to implement the strict connection lifecycle rule
 - Property tests validate universal correctness properties across all connection scenarios
 - Unit tests validate specific examples, edge cases, and error conditions
-- Integration tests ensure proper coordination between client and server components
+- Integration tests ensure proper coordination between lifecycle components
+- The CALL_IS_CONNECTED flag is the single source of truth for connection state
+- All pre-connection logic must be registered and terminable via killAllPreConnectionLogic()
+- Only actual WebRTC failures ("failed"/"closed" states) should allow recovery attempts
