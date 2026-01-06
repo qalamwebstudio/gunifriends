@@ -165,7 +165,7 @@ function ChatPageContent() {
     });
 
     newSocket.on('connect', () => {
-      console.log('Connected to server for video chat');
+      console.log('📡 SIGNALING: Socket connected to chat server');
       setError(null);
       
       // Only attempt session restoration if we don't already have match data from URL
@@ -179,7 +179,7 @@ function ChatPageContent() {
     });
 
     newSocket.on('disconnect', () => {
-      console.log('Disconnected from server');
+      console.log('📡 SIGNALING: Socket disconnected from chat server');
       handleCallEnd();
     });
 

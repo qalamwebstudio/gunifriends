@@ -229,7 +229,7 @@ export default function Page() {
     });
 
     newSocket.on('match-found', (matchData) => {
-      console.log('Match found:', matchData);
+      console.log('🎯 MATCH FOUND: partnerId=' + matchData.partnerId + ', roomId=' + matchData.roomId);
       setMatchingStatus('matched');
       setConnectionStatus('matched');
       setSearchStartTime(null);
@@ -237,6 +237,7 @@ export default function Page() {
       
       // Navigate to video chat interface
       const chatUrl = `/chat?partnerId=${matchData.partnerId}&roomId=${matchData.roomId}`;
+      console.log('🚀 MATCHING: Navigating to chat page');
       router.push(chatUrl);
     });
 
@@ -305,11 +306,13 @@ export default function Page() {
       return;
     }
 
+    console.log('🟢 MATCHING: User entered queue');
     setMatchingStatus('searching');
     setConnectionStatus('searching');
     setSearchStartTime(new Date());
     setSearchDuration(0);
     setError(null);
+    console.log('📤 MATCHING: Sending join-matching-pool request');
     socket.emit('join-matching-pool');
   };
 
