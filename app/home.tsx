@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-
+import Image from 'next/image';
 // Register GSAP plugins
 if (typeof window !== 'undefined') {
   gsap.registerPlugin(ScrollTrigger);
@@ -261,7 +261,7 @@ export default function Home() {
           <div className="flex items-center justify-between">
             {/* Logo Section - Left Side */}
             <div className="flex items-center space-x-3 z-10">
-              <img
+              <Image
                 src={isScrolled ? "/logoherored.png" : "/logohero.png"}
                 alt="Logo"
                 className="h-12 md:h-16 w-auto transition-all duration-300"
@@ -830,7 +830,7 @@ export default function Home() {
                 <div className="about-text">
                   <div className="flex flex-col md:flex-row items-center md:items-center gap-4 mb-6 md:mb-8">
                     <h2 className="text-3xl md:text-5xl font-heading-bold text-[#000934]">About</h2>
-                    <img
+                    <Image
                       src="/logoherored.png"
                       alt="CampusCam Logo"
                       className="h-12 md:h-20 w-auto"
