@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { io, Socket } from 'socket.io-client';
 import { ClientToServerEvents, ServerToClientEvents } from './types';
 import Home from './home';
+import Image from 'next/image';
 import { 
   CONNECTION_CONFIG,
   SOCKET_TIMEOUT_MS
@@ -390,7 +391,7 @@ export default function Page() {
       <header className="bg-white shadow-sm border-b">
         <div className="max-w-4xl mx-auto px-4 py-4 flex justify-between items-center">
           <div className="flex items-center space-x-4">
-            <img 
+            <Image 
               src="/logohero.png" 
               alt="Logo" 
               className="h-10 w-auto"
