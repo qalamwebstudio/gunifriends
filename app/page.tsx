@@ -7,7 +7,6 @@ import { ClientToServerEvents, ServerToClientEvents } from './types';
 import Home from './home';
 import Image from 'next/image';
 import { 
-  CONNECTION_CONFIG,
   SOCKET_TIMEOUT_MS
 } from './lib/connection-config';
 
@@ -394,6 +393,8 @@ export default function Page() {
             <Image 
               src="/logohero.png" 
               alt="Logo" 
+              width={120}
+              height={40}
               className="h-10 w-auto"
             />
             <div>
