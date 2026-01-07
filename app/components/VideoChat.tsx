@@ -521,11 +521,32 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
           });
 
         // Set initial connection timeout ONLY during pre-connection phase
+        // CRITICAL FIX: Only trigger timeout if ICE connection actually fails, not based on time elapsed
         if (shouldRunPreConnectionLogic() && !WebRTCManager.getCallIsConnected()) {
           const timeout = registerTimeout(() => {
             if (isMounted && !isConnectionEstablished && connectionState !== 'connected') {
-              console.log('Initial connection timeout reached during coordination');
-              handleInitialConnectionTimeout();
+              // CRITICAL: Check ICE state before triggering timeout - only fail if ICE is actually failed
+              const iceState = peerConnectionRef.current?.iceConnectionState;
+              if (iceState === 'failed') {
+                console.log('Initial connection timeout reached with ICE failure - triggering reconnection');
+                handleInitialConnectionTimeout();
+              } else {
+                console.log(`Initial connection timeout reached but ICE state is "${iceState}" - extending timeout to allow ICE completion`);
+                // Extend timeout to allow ICE negotiation to complete naturally
+                const extendedTimeout = registerTimeout(() => {
+                  const currentIceState = peerConnectionRef.current?.iceConnectionState;
+                  if (currentIceState === 'failed') {
+                    console.log('Extended timeout reached with ICE failure - triggering reconnection');
+                    handleInitialConnectionTimeout();
+                  } else {
+                    console.log(`Extended timeout reached but ICE state is "${currentIceState}" - allowing connection to continue`);
+                  }
+                }, 30000, 'Extended ICE completion timeout'); // 30s extension for ICE completion
+                
+                if (extendedTimeout) {
+                  setInitialConnectionTimeout(extendedTimeout);
+                }
+              }
             }
           }, INITIAL_CONNECTION_TIMEOUT_CONST, 'Initial connection timeout (coordinated)');
           
@@ -2231,11 +2252,32 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       }
 
       // Set initial connection timeout ONLY during pre-connection phase
+      // CRITICAL FIX: Only trigger timeout if ICE connection actually fails, not based on time elapsed
       if (shouldRunPreConnectionLogic() && !WebRTCManager.getCallIsConnected()) {
         const timeout = registerTimeout(() => {
           if (!isConnectionEstablished && connectionState !== 'connected') {
-            console.log('Initial connection timeout reached');
-            handleInitialConnectionTimeout();
+            // CRITICAL: Check ICE state before triggering timeout - only fail if ICE is actually failed
+            const iceState = peerConnectionRef.current?.iceConnectionState;
+            if (iceState === 'failed') {
+              console.log('Initial connection timeout reached with ICE failure - triggering reconnection');
+              handleInitialConnectionTimeout();
+            } else {
+              console.log(`Initial connection timeout reached but ICE state is "${iceState}" - extending timeout to allow ICE completion`);
+              // Extend timeout to allow ICE negotiation to complete naturally
+              const extendedTimeout = registerTimeout(() => {
+                const currentIceState = peerConnectionRef.current?.iceConnectionState;
+                if (currentIceState === 'failed') {
+                  console.log('Extended timeout reached with ICE failure - triggering reconnection');
+                  handleInitialConnectionTimeout();
+                } else {
+                  console.log(`Extended timeout reached but ICE state is "${currentIceState}" - allowing connection to continue`);
+                }
+              }, 30000, 'Extended ICE completion timeout'); // 30s extension for ICE completion
+              
+              if (extendedTimeout) {
+                setInitialConnectionTimeout(extendedTimeout);
+              }
+            }
           }
         }, INITIAL_CONNECTION_TIMEOUT_CONST, 'Initial connection timeout');
         
@@ -2864,7 +2906,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
   };
 
   const handleInitialConnectionTimeout = () => {
-    console.log('Initial connection timeout - implementing progressive extension');
+    console.log('Initial connection timeout - checking ICE state before taking action');
 
     // CRITICAL: Do not run timeout logic if network detection is frozen
     if (networkDetectionFrozen) {
@@ -2879,6 +2921,17 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       return;
     }
 
+    // CRITICAL FIX: Only proceed with reconnection if ICE connection is actually failed
+    const iceState = peerConnectionRef.current?.iceConnectionState;
+    const connectionState = peerConnectionRef.current?.connectionState;
+    
+    if (iceState !== 'failed' && connectionState !== 'failed') {
+      console.log(`⏭️ Ignoring timeout - ICE state: "${iceState}", connection state: "${connectionState}" - allowing natural completion`);
+      return;
+    }
+
+    console.log(`🔴 ICE connection actually failed - ICE state: "${iceState}", connection state: "${connectionState}" - proceeding with reconnection`);
+
     // Only extend timeout during initial connection setup, not for established connections
     if (!isConnectionEstablished && connectionState === 'connecting' && reconnectAttempts < MAX_RECONNECT_ATTEMPTS_CONST) {
       console.log('Connection still in progress, extending timeout...');
@@ -2888,9 +2941,17 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       console.log(`Extending timeout by ${extensionTime}ms (attempt ${reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS_CONST})`);
 
       const extendedTimeout = registerTimeout(() => {
-        if (!isConnectionEstablished && peerConnectionRef.current && peerConnectionRef.current.connectionState !== 'connected') {
-          console.log('Extended connection timeout reached');
-          handleInitialConnectionTimeout();
+        if (!isConnectionEstablished && peerConnectionRef.current) {
+          // CRITICAL FIX: Only trigger reconnection if ICE is actually failed
+          const currentIceState = peerConnectionRef.current.iceConnectionState;
+          const currentConnectionState = peerConnectionRef.current.connectionState;
+          
+          if (currentIceState === 'failed' || currentConnectionState === 'failed') {
+            console.log(`Extended connection timeout reached with actual failure - ICE: "${currentIceState}", connection: "${currentConnectionState}"`);
+            handleInitialConnectionTimeout();
+          } else {
+            console.log(`Extended timeout reached but connection is still viable - ICE: "${currentIceState}", connection: "${currentConnectionState}" - allowing to continue`);
+          }
         }
       }, extensionTime, `Extended connection timeout (attempt ${reconnectAttempts + 1})`);
       
@@ -3653,11 +3714,17 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
 
         const timeout = registerTimeout(() => {
           if (!isConnectionEstablished && connectionState !== 'connected') {
-            console.log(`⏰ RECONNECTION: Reconnection attempt ${currentAttempt} timed out`);
-            if (timeout) {
-              removeTimeoutTimer(timeout);
+            // CRITICAL FIX: Only trigger timeout if ICE connection actually fails, not based on time elapsed
+            const iceState = peerConnectionRef.current?.iceConnectionState;
+            if (iceState === 'failed') {
+              console.log(`⏰ RECONNECTION: Reconnection attempt ${currentAttempt} timed out with ICE failure`);
+              if (timeout) {
+                removeTimeoutTimer(timeout);
+              }
+              handleInitialConnectionTimeout();
+            } else {
+              console.log(`⏰ RECONNECTION: Reconnection timeout reached but ICE state is "${iceState}" - allowing connection to continue`);
             }
-            handleInitialConnectionTimeout();
           }
         }, timeoutDuration, `Reconnection timeout (attempt ${currentAttempt})`);
         
