@@ -2,9 +2,10 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import Image from 'next/image';
+
 // Register GSAP plugins
 if (typeof window !== 'undefined') {
   gsap.registerPlugin(ScrollTrigger);
@@ -264,6 +265,8 @@ export default function Home() {
               <Image
                 src={isScrolled ? "/logoherored.png" : "/logohero.png"}
                 alt="Logo"
+                width={120}
+                height={64}
                 className="h-12 md:h-16 w-auto transition-all duration-300"
               />
             </div>
@@ -833,6 +836,8 @@ export default function Home() {
                     <Image
                       src="/logoherored.png"
                       alt="CampusCam Logo"
+                      width={120}
+                      height={80}
                       className="h-12 md:h-20 w-auto"
                     />
                   </div>
