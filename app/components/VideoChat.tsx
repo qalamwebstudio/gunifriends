@@ -63,7 +63,7 @@ interface VideoChatProps {
   isSessionRestored?: boolean;
 }
 
-type ConnectionState = 'idle' | 'matched' | 'connecting' | 'connected' | 'disconnected' | 'failed' | 'ended' | 'searching';
+type ConnectionState = 'idle' | 'matched' | 'connecting' | 'connected' | 'disconnected' | 'failed' | 'ended';
 type ConnectionPhase = 'pre-connection' | 'post-connection';
 
 export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onError, isSessionRestored = false }: VideoChatProps) {
@@ -91,11 +91,6 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
   const [networkQuality, setNetworkQuality] = useState<'good' | 'fair' | 'poor'>('good');
   const [adaptiveStreamingEnabled, setAdaptiveStreamingEnabled] = useState(false);
   const [isConnectionEstablished, setIsConnectionEstablished] = useState(false);
-
-  // Skip flow state - for managing internal matchmaking without navigation
-  const [currentPartnerId, setCurrentPartnerId] = useState<string>(partnerId);
-  const [currentRoomId, setCurrentRoomId] = useState<string>(roomId);
-  const [isSearchingForNewPartner, setIsSearchingForNewPartner] = useState(false);
 
   // Session timer state
   const [sessionStartTime, setSessionStartTime] = useState<Date | null>(null);
@@ -798,9 +793,6 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     socket.on('session-restored', handleSessionRestored);
     socket.on('session-restore-failed', handleSessionRestoreFailed);
 
-    // CRITICAL: Handle new matches when searching for next partner (Skip flow)
-    socket.on('match-found', handleNewMatchFound);
-
     // Handle socket errors
     socket.on('error', (errorMessage) => {
       console.error('Socket error in VideoChat:', errorMessage);
@@ -854,7 +846,6 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       socket.off('session-timeout', handleSessionTimeout);
       socket.off('session-restored', handleSessionRestored);
       socket.off('session-restore-failed', handleSessionRestoreFailed);
-      socket.off('match-found', handleNewMatchFound);
       socket.off('error');
     };
   }, [socket]);
@@ -873,10 +864,10 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
 
   // Save session state periodically for restoration (Requirements 5.5)
   useEffect(() => {
-    if (connectionState === 'connected' && currentPartnerId && currentRoomId) {
+    if (connectionState === 'connected' && partnerId && roomId) {
       const currentSessionState = {
-        partnerId: currentPartnerId,
-        roomId: currentRoomId,
+        partnerId,
+        roomId,
         connectionEstablished: isConnectionEstablished,
         mediaSettings: {
           audioMuted: isAudioMuted,
@@ -894,7 +885,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         console.warn('Failed to save session state to storage:', error);
       }
     }
-  }, [connectionState, currentPartnerId, currentRoomId, isConnectionEstablished, isAudioMuted, isVideoDisabled]);
+  }, [connectionState, partnerId, roomId, isConnectionEstablished, isAudioMuted, isVideoDisabled]);
 
   // Attempt session restoration on component mount (Requirements 5.4, 5.5)
   useEffect(() => {
@@ -1404,12 +1395,12 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         currentUserId = socket.id || `fallback_${Date.now()}`;
       }
 
-      const shouldInitiate = currentUserId.localeCompare(currentPartnerId) < 0;
+      const shouldInitiate = currentUserId.localeCompare(partnerId) < 0;
       setIsInitiator(shouldInitiate);
 
       console.log('🔗 CONNECTION: Initiation logic:', {
         currentUserId,
-        partnerId: currentPartnerId,
+        partnerId,
         shouldInitiate
       });
 
@@ -2194,12 +2185,12 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         currentUserId = socket.id || `fallback_${Date.now()}`;
       }
 
-      const shouldInitiate = currentUserId.localeCompare(currentPartnerId) < 0;
+      const shouldInitiate = currentUserId.localeCompare(partnerId) < 0;
       setIsInitiator(shouldInitiate);
 
       console.log('🔗 CONNECTION: Initiation logic:', {
         currentUserId,
-        partnerId: currentPartnerId,
+        partnerId,
         shouldInitiate
       });
 
@@ -2757,7 +2748,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         }
 
         // If we have lower ID, we should back off and accept the offer
-        if (currentUserId.localeCompare(currentPartnerId) < 0) {
+        if (currentUserId.localeCompare(partnerId) < 0) {
           console.log('🔄 Backing off from offer collision - accepting remote offer');
           
           // SDP SAFETY: Reset offer lock before rollback
@@ -2953,60 +2944,10 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
   }, [onCallEnd]);
 
   const handlePartnerDisconnected = useCallback(() => {
-    console.log('🛑 PARTNER EVENT: Partner disconnected');
-    
-    // If we're searching for a new partner (after skip), this is expected
-    if (isSearchingForNewPartner) {
-      console.log('⏭️ SKIP FLOW: Partner disconnected as expected during skip - staying on page');
-      // Don't call onCallEnd() - stay on the page and continue searching
-      return;
-    }
-    
-    // Otherwise, this is an unexpected disconnection - end the session
-    console.log('🛑 CALL END: Unexpected partner disconnection - ending session');
+    console.log('🛑 CALL END: Partner disconnected');
     cleanup();
     onCallEnd();
-  }, [onCallEnd, isSearchingForNewPartner]);
-
-  // CRITICAL: Handle new matches when user skips to find next partner
-  const handleNewMatchFound = useCallback((matchData: { partnerId: string; roomId: string }) => {
-    console.log('🎯 SKIP FLOW: New match found during search:', matchData);
-    
-    // Only handle new matches if we're actively searching (after skip)
-    if (!isSearchingForNewPartner) {
-      console.log('⏭️ SKIP FLOW: Ignoring match - not currently searching');
-      return;
-    }
-    
-    console.log('🔄 SKIP FLOW: Starting new session with partner:', matchData.partnerId);
-    
-    // Update partner information
-    setCurrentPartnerId(matchData.partnerId);
-    setCurrentRoomId(matchData.roomId);
-    
-    // Reset search state
-    setIsSearchingForNewPartner(false);
-    
-    // Reset connection state for new session
-    setConnectionState('matched');
-    setConnectionPhase('pre-connection');
-    setNetworkDetectionFrozen(false);
-    setIsConnectionEstablished(false);
-    setIsReconnecting(false);
-    setReconnectAttempts(0);
-    setPartnerTemporarilyDisconnected(false);
-    
-    // Reset WebRTC manager state for new connection
-    WebRTCManager.setCallIsConnected(false);
-    
-    // Clear any existing error messages
-    onError('');
-    
-    console.log('✅ SKIP FLOW: Ready to start new connection with partner');
-    
-    // The existing initialization logic will automatically start the new connection
-    // since we've reset the state to 'matched'
-  }, [isSearchingForNewPartner, onError]);
+  }, [onCallEnd]);
 
   const handlePartnerTimeout = useCallback(() => {
     console.log('⏰ CALL END: Partner session timed out');
@@ -3220,93 +3161,14 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     console.log('🛑 USER ACTION: End call button clicked');
     socket.emit('end-call');
     cleanup();
-    onCallEnd(); // Navigate back to home page
+    onCallEnd();
   };
 
   const skipUser = () => {
     console.log('⏭️ USER ACTION: Skip user button clicked');
-    
-    // CRITICAL FIX: Skip should NOT navigate away - stay on videochat page
-    console.log('🔄 SKIP FLOW: Starting skip process - staying on page');
-    
-    // Set searching state immediately
-    setIsSearchingForNewPartner(true);
-    setConnectionState('searching');
-    
-    // Notify server to skip current partner
     socket.emit('skip-user');
-    
-    // Clean up current WebRTC connection (but don't call onCallEnd)
-    cleanupForSkip();
-    
-    // Join matching pool to find new partner
-    console.log('🔍 SKIP FLOW: Joining matching pool for new partner');
-    socket.emit('join-matching-pool');
-    
-    console.log('✅ SKIP FLOW: Skip initiated - waiting for new match');
-  };
-
-  // Cleanup function specifically for skip (doesn't navigate away)
-  const cleanupForSkip = () => {
-    console.log('🧹 SKIP CLEANUP: Starting cleanup for skip (no navigation)');
-
-    // Reset the global connection authority flag
-    console.log('🧹 SKIP CLEANUP: Resetting global connection authority flag');
-    WebRTCManager.setCallIsConnected(false);
-
-    // Stop quality monitoring
-    if (qualityMonitorRef.current) {
-      console.log('🧹 SKIP CLEANUP: Stopping quality monitoring');
-      qualityMonitorRef.current.stop();
-      qualityMonitorRef.current = null;
-    }
-
-    // Stop network traversal monitoring
-    if (networkTraversalMonitorRef.current) {
-      console.log('🧹 SKIP CLEANUP: Stopping network traversal monitoring');
-      networkTraversalMonitorRef.current = null;
-    }
-
-    // Clear all timeout timers
-    console.log('🧹 SKIP CLEANUP: Clearing all timeout timers');
-    clearAllTimeoutTimers();
-    clearGraceTimers();
-
-    // Clear initial connection timeout
-    if (initialConnectionTimeout) {
-      console.log('🧹 SKIP CLEANUP: Clearing initial connection timeout');
-      clearTimeout(initialConnectionTimeout);
-      setInitialConnectionTimeout(null);
-    }
-
-    // Close peer connection
-    if (peerConnectionRef.current) {
-      console.log('🧹 SKIP CLEANUP: Closing peer connection');
-      protectedClose(peerConnectionRef.current);
-      peerConnectionRef.current = null;
-    }
-
-    // Clear remote video (keep local video for next connection)
-    if (remoteVideoRef.current) {
-      console.log('🧹 SKIP CLEANUP: Clearing remote video element');
-      remoteVideoRef.current.srcObject = null;
-    }
-
-    // Reset connection-specific state (keep media stream for next connection)
-    console.log('🧹 SKIP CLEANUP: Resetting connection state for next partner');
-    setConnectionPhase('pre-connection');
-    setNetworkDetectionFrozen(false);
-    setIsConnectionEstablished(false);
-    setIsReconnecting(false);
-    setReconnectAttempts(0);
-    setPartnerTemporarilyDisconnected(false);
-
-    // Reset parallel execution state
-    setConnectionReady(false);
-    setNetworkOptimized(false);
-    // Keep mediaReady and uiReady true since we're reusing the media stream
-
-    console.log('✅ SKIP CLEANUP: Skip cleanup completed - ready for new partner');
+    cleanup();
+    onCallEnd();
   };
 
   const reportUser = () => {
@@ -3329,10 +3191,10 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          reportedUserId: currentPartnerId,
+          reportedUserId: partnerId,
           category,
           description,
-          sessionId: currentRoomId
+          sessionId: roomId
         })
       });
 
@@ -3343,7 +3205,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
 
         // Emit report event to server for immediate session termination
         socket.emit('report-user', {
-          reportedUserId: currentPartnerId,
+          reportedUserId: partnerId,
           category,
           description
         });
@@ -4581,8 +4443,6 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         return 'Setting up camera and microphone...';
       case 'connecting':
         return 'Connecting to your partner...';
-      case 'searching':
-        return 'Looking for your next partner...';
       case 'connected':
         baseStatus = partnerTemporarilyDisconnected ? 'Partner reconnected!' : 'Connected';
         break;
@@ -4629,8 +4489,6 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       case 'matched':
       case 'connecting':
         return 'text-yellow-600';
-      case 'searching':
-        return 'text-blue-600';
       case 'connected':
         return 'text-green-600';
       case 'ended':
@@ -4649,8 +4507,8 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         onClose={() => setIsReportModalOpen(false)}
         onSubmit={handleReportSubmit}
         partnerInfo={{
-          id: currentPartnerId,
-          roomId: currentRoomId
+          id: partnerId,
+          roomId: roomId
         }}
       />
 
@@ -4793,9 +4651,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
                           </div>
                         </div>
                         <p className="text-white font-medium text-sm md:text-base">
-                          {isReconnecting ? `Reconnecting (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS_CONST})` : 
-                           connectionState === 'searching' ? 'Looking for your next partner...' : 
-                           'Connecting to partner...'}
+                          {isReconnecting ? `Reconnecting (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS_CONST})` : 'Connecting to partner...'}
                         </p>
                       </div>
                     </div>
@@ -4950,7 +4806,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     <PerformanceDashboard
       isVisible={showPerformanceDashboard}
       onClose={() => setShowPerformanceDashboard(false)}
-      sessionId={`${currentRoomId}-${currentPartnerId}`}
+      sessionId={`${roomId}-${partnerId}`}
     />
     </>
   );
