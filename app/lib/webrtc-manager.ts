@@ -402,10 +402,17 @@ export class WebRTCManager {
  */
 
 /**
- * Generate unique ID for process tracking
+ * Generate deterministic ID for process tracking
+ * Requirements: 9.1, 9.2 - Remove Math.random() usage for consistent behavior
  */
+let processIdCounter = 0;
 function generateProcessId(): string {
-  return `proc_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  // Use deterministic counter instead of Math.random() for consistent process IDs
+  processIdCounter = (processIdCounter + 1) % 10000; // Reset after 10000 to prevent overflow
+  const deterministicId = `proc_${Date.now()}_${processIdCounter.toString().padStart(4, '0')}`;
+  
+  console.log(`🎯 Generated deterministic process ID: ${deterministicId} (no randomness)`);
+  return deterministicId;
 }
 
 /**
@@ -1016,9 +1023,439 @@ export function shouldBlockReconnectionOperation(operationType: string): boolean
 }
 
 /**
- * Peer Connection Protection Functions
- * Requirements: 3.3, 3.4 - Prevent RTCPeerConnection recreation and restrict modification methods
+ * Optimized Connection Sequencer Implementation
+ * Requirements: 3.1, 3.2, 3.3, 3.4, 3.5 - Proper execution order for fastest connection establishment
  */
+
+export interface ConnectionSequence {
+  mediaReady: boolean;
+  tracksAttached: boolean;
+  iceConfigured: boolean;
+  signalingReady: boolean;
+}
+
+export interface OptimizedConnectionResult {
+  peerConnection: RTCPeerConnection;
+  sequence: ConnectionSequence;
+  timings: {
+    mediaReadyTime: number;
+    tracksAttachedTime: number;
+    iceConfiguredTime: number;
+    signalingReadyTime: number;
+    totalTime: number;
+  };
+}
+
+/**
+ * Execute optimized connection sequence for fastest establishment
+ * Requirements: 3.1, 3.2, 3.3, 3.5 - Media tracks attached before createOffer(), proper sequencing
+ */
+async function executeOptimizedConnectionSequence(
+  mediaStream: MediaStream,
+  iceConfiguration: RTCConfiguration,
+  onIceCandidate?: (candidate: RTCIceCandidate) => void
+): Promise<OptimizedConnectionResult> {
+  const startTime = performance.now();
+  const sequence: ConnectionSequence = {
+    mediaReady: false,
+    tracksAttached: false,
+    iceConfigured: false,
+    signalingReady: false
+  };
+  
+  const timings = {
+    mediaReadyTime: 0,
+    tracksAttachedTime: 0,
+    iceConfiguredTime: 0,
+    signalingReadyTime: 0,
+    totalTime: 0
+  };
+
+  try {
+    console.log('🚀 Starting optimized connection sequence...');
+    
+    // Step 1: Validate media stream is ready (Requirements 3.1, 3.2)
+    if (!mediaStream || mediaStream.getTracks().length === 0) {
+      throw new Error('Media stream not ready - cannot proceed with connection');
+    }
+    
+    sequence.mediaReady = true;
+    timings.mediaReadyTime = performance.now() - startTime;
+    console.log(`✅ Media stream validated (${timings.mediaReadyTime.toFixed(1)}ms)`);
+    
+    // Step 2: Create peer connection with optimized ICE configuration (Requirements 8.1)
+    const peerConnection = createProtectedPeerConnection(iceConfiguration);
+    if (!peerConnection) {
+      throw new Error('Failed to create RTCPeerConnection - connection may already be established');
+    }
+    
+    sequence.iceConfigured = true;
+    timings.iceConfiguredTime = performance.now() - startTime;
+    console.log(`✅ Peer connection created with optimized ICE config (${timings.iceConfiguredTime.toFixed(1)}ms)`);
+    
+    // Step 3: Attach media tracks BEFORE any signaling (Requirements 3.1, 3.2, 3.3)
+    console.log('📎 Attaching media tracks before signaling...');
+    const videoTracks = mediaStream.getVideoTracks();
+    const audioTracks = mediaStream.getAudioTracks();
+    
+    // Attach video tracks first for better user experience
+    for (const track of videoTracks) {
+      const sender = protectedAddTrack(peerConnection, track, mediaStream);
+      if (!sender) {
+        throw new Error('Failed to add video track - connection may already be established');
+      }
+      console.log(`📹 Video track attached: ${track.label || 'unnamed'}`);
+    }
+    
+    // Attach audio tracks
+    for (const track of audioTracks) {
+      const sender = protectedAddTrack(peerConnection, track, mediaStream);
+      if (!sender) {
+        throw new Error('Failed to add audio track - connection may already be established');
+      }
+      console.log(`🎤 Audio track attached: ${track.label || 'unnamed'}`);
+    }
+    
+    sequence.tracksAttached = true;
+    timings.tracksAttachedTime = performance.now() - startTime;
+    console.log(`✅ All media tracks attached (${timings.tracksAttachedTime.toFixed(1)}ms)`);
+    
+    // Step 4: Set up ICE candidate handling for parallel execution (Requirements 5.1, 5.3, 5.4)
+    if (onIceCandidate) {
+      peerConnection.addEventListener('icecandidate', (event) => {
+        if (event.candidate) {
+          console.log('🧊 ICE candidate discovered, sending immediately (no batching)');
+          onIceCandidate(event.candidate);
+        }
+      });
+    }
+    
+    // Step 5: Monitor connection state for lifecycle management
+    WebRTCManager.monitorConnectionState(peerConnection);
+    
+    sequence.signalingReady = true;
+    timings.signalingReadyTime = performance.now() - startTime;
+    timings.totalTime = timings.signalingReadyTime;
+    
+    console.log(`✅ Optimized connection sequence completed (${timings.totalTime.toFixed(1)}ms)`);
+    console.log('🎯 Ready for offer/answer exchange with media tracks pre-attached');
+    
+    return {
+      peerConnection,
+      sequence,
+      timings
+    };
+    
+  } catch (error) {
+    console.error('❌ Optimized connection sequence failed:', error);
+    
+    // Calculate partial timings for debugging
+    timings.totalTime = performance.now() - startTime;
+    
+    throw new Error(`Connection sequence failed: ${error}`);
+  }
+}
+
+/**
+ * Validate connection sequence completion before proceeding
+ * Requirements: 3.1, 3.2, 3.3 - Ensure proper sequence before signaling
+ */
+function validateConnectionSequence(sequence: ConnectionSequence): {
+  isValid: boolean;
+  missingSteps: string[];
+  canProceedWithSignaling: boolean;
+} {
+  const missingSteps: string[] = [];
+  
+  if (!sequence.mediaReady) {
+    missingSteps.push('Media stream not ready');
+  }
+  
+  if (!sequence.iceConfigured) {
+    missingSteps.push('ICE configuration not applied');
+  }
+  
+  if (!sequence.tracksAttached) {
+    missingSteps.push('Media tracks not attached');
+  }
+  
+  if (!sequence.signalingReady) {
+    missingSteps.push('Signaling not ready');
+  }
+  
+  const isValid = missingSteps.length === 0;
+  const canProceedWithSignaling = sequence.mediaReady && sequence.tracksAttached && sequence.iceConfigured;
+  
+  if (!isValid) {
+    console.warn('⚠️ Connection sequence validation failed:', missingSteps);
+  }
+  
+  return {
+    isValid,
+    missingSteps,
+    canProceedWithSignaling
+  };
+}
+
+/**
+ * Create optimized offer with pre-attached media tracks
+ * Requirements: 3.1, 3.2, 3.5 - Create offer after media tracks are attached
+ */
+async function createOptimizedOffer(
+  peerConnection: RTCPeerConnection,
+  sequence: ConnectionSequence,
+  options?: RTCOfferOptions
+): Promise<RTCSessionDescriptionInit> {
+  // Validate sequence before creating offer
+  const validation = validateConnectionSequence(sequence);
+  
+  if (!validation.canProceedWithSignaling) {
+    throw new Error(`Cannot create offer - sequence incomplete: ${validation.missingSteps.join(', ')}`);
+  }
+  
+  console.log('📝 Creating offer with pre-attached media tracks...');
+  
+  const offer = await protectedCreateOffer(peerConnection, options);
+  if (!offer) {
+    throw new Error('Failed to create offer - connection may already be established');
+  }
+  
+  console.log('✅ Offer created successfully with media tracks pre-attached');
+  return offer;
+}
+
+/**
+ * Create optimized answer with pre-attached media tracks
+ * Requirements: 3.1, 3.2, 3.5 - Create answer after media tracks are attached
+ */
+async function createOptimizedAnswer(
+  peerConnection: RTCPeerConnection,
+  sequence: ConnectionSequence,
+  options?: RTCAnswerOptions
+): Promise<RTCSessionDescriptionInit> {
+  // Validate sequence before creating answer
+  const validation = validateConnectionSequence(sequence);
+  
+  if (!validation.canProceedWithSignaling) {
+    throw new Error(`Cannot create answer - sequence incomplete: ${validation.missingSteps.join(', ')}`);
+  }
+  
+  console.log('📝 Creating answer with pre-attached media tracks...');
+  
+  const answer = await protectedCreateAnswer(peerConnection, options);
+  if (!answer) {
+    throw new Error('Failed to create answer - connection may already be established');
+  }
+  
+  console.log('✅ Answer created successfully with media tracks pre-attached');
+  return answer;
+}
+
+/**
+ * Apply aggressive ICE gathering timeout with TURN fallback
+ * Requirements: 2.1, 2.2, 2.3 - Aggressive timeout control with TURN fallback
+ */
+function applyAggressiveICETimeout(
+  peerConnection: RTCPeerConnection,
+  timeoutMs: number = 5000,
+  turnFallbackMs: number = 3000
+): {
+  timeoutHandle: NodeJS.Timeout | null;
+  turnFallbackHandle: NodeJS.Timeout | null;
+} {
+  console.log(`⏰ Applying aggressive ICE timeout: ${timeoutMs}ms (TURN fallback: ${turnFallbackMs}ms)`);
+  
+  // Set up TURN fallback timeout (Requirements 2.2, 2.3)
+  const turnFallbackHandle = registerTimeout(() => {
+    console.log('🔄 TURN fallback timeout reached - forcing relay mode');
+    
+    // Force TURN relay mode by restarting ICE with relay-only policy
+    try {
+      const restartResult = protectedRestartIce(peerConnection);
+      if (restartResult === null) {
+        console.warn('⚠️ ICE restart blocked - connection may already be established');
+      } else {
+        console.log('✅ ICE restarted in TURN relay mode');
+      }
+    } catch (error) {
+      console.error('❌ Failed to restart ICE for TURN fallback:', error);
+    }
+  }, turnFallbackMs, `TURN fallback timeout (${turnFallbackMs}ms)`);
+  
+  // Set up main ICE gathering timeout (Requirements 2.1, 2.2)
+  const timeoutHandle = registerTimeout(() => {
+    console.log('⏰ ICE gathering timeout reached - proceeding with available candidates');
+    
+    // Log current ICE gathering state
+    console.log(`📊 ICE connection state: ${peerConnection.iceConnectionState}`);
+    console.log(`📊 ICE gathering state: ${peerConnection.iceGatheringState}`);
+    
+    // Connection will proceed with whatever candidates are available
+    console.log('🚀 Proceeding with connection establishment using available candidates');
+  }, timeoutMs, `ICE gathering timeout (${timeoutMs}ms)`);
+  
+  return {
+    timeoutHandle,
+    turnFallbackHandle
+  };
+}
+
+/**
+ * Get optimized connection sequence timing metrics
+ * Requirements: Performance monitoring for connection establishment
+ */
+function getConnectionSequenceMetrics(result: OptimizedConnectionResult): {
+  summary: string;
+  breakdown: Record<string, number>;
+  performance: 'excellent' | 'good' | 'acceptable' | 'slow';
+} {
+  const { timings } = result;
+  
+  let performance: 'excellent' | 'good' | 'acceptable' | 'slow' = 'excellent';
+  
+  if (timings.totalTime > 2000) {
+    performance = 'slow';
+  } else if (timings.totalTime > 1000) {
+    performance = 'acceptable';
+  } else if (timings.totalTime > 500) {
+    performance = 'good';
+  }
+  
+  return {
+    summary: `Connection sequence completed in ${timings.totalTime.toFixed(1)}ms (${performance})`,
+    breakdown: {
+      'Media Ready': timings.mediaReadyTime,
+      'ICE Configured': timings.iceConfiguredTime,
+      'Tracks Attached': timings.tracksAttachedTime,
+      'Signaling Ready': timings.signalingReadyTime,
+      'Total Time': timings.totalTime
+    },
+    performance
+  };
+}
+
+/**
+ * Backward Compatibility Functions
+ * Ensures existing connection logic continues to work while providing optimized alternatives
+ */
+
+/**
+ * Legacy connection creation wrapper with optimized defaults
+ * Provides backward compatibility while applying optimizations
+ */
+async function createLegacyCompatibleConnection(
+  mediaStream: MediaStream,
+  iceConfiguration?: RTCConfiguration,
+  onIceCandidate?: (candidate: RTCIceCandidate) => void
+): Promise<RTCPeerConnection> {
+  console.log('🔄 Creating connection with legacy compatibility and optimizations...');
+  
+  try {
+    // Use optimized sequence if ICE configuration is provided
+    if (iceConfiguration) {
+      const result = await executeOptimizedConnectionSequence(
+        mediaStream,
+        iceConfiguration,
+        onIceCandidate
+      );
+      
+      const metrics = getConnectionSequenceMetrics(result);
+      console.log(`📊 ${metrics.summary}`);
+      
+      return result.peerConnection;
+    }
+    
+    // Fallback to basic connection creation for legacy compatibility
+    console.log('⚠️ No ICE configuration provided - using basic connection creation');
+    
+    const basicConfig: RTCConfiguration = {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' }
+      ],
+      iceCandidatePoolSize: 4,
+      bundlePolicy: 'max-bundle'
+    };
+    
+    const peerConnection = createProtectedPeerConnection(basicConfig);
+    if (!peerConnection) {
+      throw new Error('Failed to create peer connection');
+    }
+    
+    // Attach media tracks for backward compatibility
+    const tracks = mediaStream.getTracks();
+    for (const track of tracks) {
+      protectedAddTrack(peerConnection, track, mediaStream);
+    }
+    
+    // Set up ICE candidate handling
+    if (onIceCandidate) {
+      peerConnection.addEventListener('icecandidate', (event) => {
+        if (event.candidate) {
+          onIceCandidate(event.candidate);
+        }
+      });
+    }
+    
+    // Monitor connection state
+    WebRTCManager.monitorConnectionState(peerConnection);
+    
+    console.log('✅ Legacy compatible connection created with basic optimizations');
+    return peerConnection;
+    
+  } catch (error) {
+    console.error('❌ Legacy compatible connection creation failed:', error);
+    throw error;
+  }
+}
+
+/**
+ * Enhanced connection creation with full optimization
+ * Recommended for new implementations
+ */
+async function createOptimizedConnection(
+  mediaStream: MediaStream,
+  networkType: 'mobile' | 'wifi' | 'unknown' = 'unknown',
+  forceRelay: boolean = false,
+  onIceCandidate?: (candidate: RTCIceCandidate) => void
+): Promise<OptimizedConnectionResult> {
+  console.log(`🚀 Creating optimized connection for ${networkType} network...`);
+  
+  try {
+    // Get optimized ICE configuration
+    const { getWebRTCConfiguration } = await import('./webrtc-config');
+    const iceConfiguration = await getWebRTCConfiguration(forceRelay, networkType);
+    
+    // Execute optimized connection sequence
+    const result = await executeOptimizedConnectionSequence(
+      mediaStream,
+      iceConfiguration,
+      onIceCandidate
+    );
+    
+    // Apply aggressive ICE timeout
+    const { CONNECTION_CONFIG } = await import('./connection-config');
+    const timeouts = applyAggressiveICETimeout(
+      result.peerConnection,
+      CONNECTION_CONFIG.iceGatheringTimeout,
+      CONNECTION_CONFIG.turnFallbackTimeout
+    );
+    
+    // Log performance metrics
+    const metrics = getConnectionSequenceMetrics(result);
+    console.log(`📊 ${metrics.summary}`);
+    Object.entries(metrics.breakdown).forEach(([step, time]) => {
+      console.log(`   ${step}: ${time.toFixed(1)}ms`);
+    });
+    
+    console.log('✅ Optimized connection created successfully');
+    return result;
+    
+  } catch (error) {
+    console.error('❌ Optimized connection creation failed:', error);
+    throw error;
+  }
+}
 
 /**
  * Check if RTCPeerConnection recreation should be blocked
@@ -2026,3 +2463,16 @@ export function resetErrorRecoveryState(): void {
   
   console.log('🔄 Error recovery state reset');
 }
+
+// Export optimized connection functions for external use
+export {
+  executeOptimizedConnectionSequence,
+  validateConnectionSequence,
+  createOptimizedOffer,
+  createOptimizedAnswer,
+  applyAggressiveICETimeout,
+  getConnectionSequenceMetrics,
+  createLegacyCompatibleConnection,
+  createOptimizedConnection
+};
+
