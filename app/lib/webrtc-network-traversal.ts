@@ -99,10 +99,9 @@ const STUN_SERVERS = [
 ];
 
 /**
- * Detect network environment and recommend ICE transport policy
- * CRITICAL: This should ONLY be called during pre-connection phase
- * Requirements: 2.2, 2.3 - Block network detection startup when connected
- * Requirements: 5.5 - Lifecycle gate enforcement
+ * REMOVED: Network environment detection (Requirements 4.1, 4.2, 4.3, 4.4, 4.5)
+ * NAT type detection, bandwidth tests, and pre-connection quality checks eliminated
+ * Connection flow now starts immediately after media readiness using TURN-first strategy
  */
 export async function detectNetworkEnvironment(): Promise<{
   isRestrictive: boolean;
@@ -110,86 +109,16 @@ export async function detectNetworkEnvironment(): Promise<{
   networkType: 'open' | 'moderate' | 'restrictive';
   latency: number;
 }> {
-  // Import WebRTCManager to check lifecycle gate enforcement
-  const { WebRTCManager, enforceNetworkDetectionGate } = await import('./webrtc-manager');
+  console.log('⏭️ REMOVED: Network environment detection disabled');
+  console.log('🚀 Connection will use TURN-first ICE strategy without pre-connection probing');
   
-  // Requirements 5.5 - Lifecycle gate enforcement for network detection
-  if (enforceNetworkDetectionGate()) {
-    console.warn('🚫 Network detection blocked by lifecycle gate');
-    console.warn('Returning cached restrictive network settings to prevent interference');
-    
-    // Return safe restrictive settings to prevent any network changes
-    return {
-      isRestrictive: true,
-      recommendedPolicy: 'relay',
-      networkType: 'restrictive',
-      latency: 0
-    };
-  }
-  
-  // Legacy check for backward compatibility
-  if (WebRTCManager.getCallIsConnected()) {
-    console.warn('🚫 Blocked: Network detection not allowed after connection established');
-    console.warn('Returning cached restrictive network settings to prevent interference');
-    
-    // Return safe restrictive settings to prevent any network changes
-    return {
-      isRestrictive: true,
-      recommendedPolicy: 'relay',
-      networkType: 'restrictive',
-      latency: 0
-    };
-  }
-
-  try {
-    console.log('🔍 Running network environment detection (pre-connection only)');
-    
-    // Test basic connectivity and latency
-    const startTime = Date.now();
-    const response = await fetch('/api/health', { 
-      method: 'GET',
-      cache: 'no-cache',
-      signal: AbortSignal.timeout(5000)
-    });
-    const latency = Date.now() - startTime;
-
-    // Test STUN connectivity
-    const stunResult = await testSTUNConnectivity();
-    
-    // Test if we can reach TURN servers
-    const turnResult = await testTURNConnectivity();
-
-    // Determine network restrictiveness
-    let networkType: 'open' | 'moderate' | 'restrictive' = 'open';
-    let recommendedPolicy: 'all' | 'relay' = 'all';
-
-    if (!stunResult.hasSTUN || latency > 1000) {
-      networkType = 'restrictive';
-      recommendedPolicy = 'relay';
-    } else if (!turnResult.hasTURN || latency > 500) {
-      networkType = 'moderate';
-      recommendedPolicy = 'all'; // Try both, but prefer TURN
-    }
-
-    console.log(`Network environment detected: ${networkType} (latency: ${latency}ms)`);
-    console.log(`Recommended ICE transport policy: ${recommendedPolicy}`);
-
-    return {
-      isRestrictive: networkType === 'restrictive',
-      recommendedPolicy,
-      networkType,
-      latency
-    };
-  } catch (error) {
-    console.error('Network detection failed:', error);
-    // Default to restrictive settings for safety
-    return {
-      isRestrictive: true,
-      recommendedPolicy: 'relay',
-      networkType: 'restrictive',
-      latency: 9999
-    };
-  }
+  // Return safe default settings immediately - no network probing
+  return {
+    isRestrictive: false,
+    recommendedPolicy: 'all',
+    networkType: 'open',
+    latency: 0
+  };
 }
 
 /**
@@ -333,257 +262,89 @@ export async function getNetworkTraversalConfig(forceRelay: boolean = false): Pr
 }
 
 /**
- * Test STUN server connectivity
+ * REMOVED: STUN server connectivity testing (Requirements 4.1, 4.3, 4.4, 4.5)
+ * Redundant STUN discovery calls beyond ICE gathering eliminated
+ * ICE gathering will handle STUN discovery during connection establishment
  */
 async function testSTUNConnectivity(): Promise<{
   hasSTUN: boolean;
   candidates: string[];
   latency: number;
 }> {
-  return new Promise((resolve) => {
-    const startTime = Date.now();
-    const candidates: string[] = [];
-    
-    // Direct RTCPeerConnection creation is acceptable here since this is for network testing
-    // before any actual WebRTC connection is established
-    const testPeerConnection = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-    });
-
-    let resolved = false;
-    
-    // Import registerTimeout to use the blocking mechanism
-    import('./webrtc-manager').then(({ registerTimeout, enforceTimeoutCreationGate }) => {
-      // Check lifecycle gate enforcement first
-      if (enforceTimeoutCreationGate()) {
-        console.log('⏭️ STUN connectivity test timeout blocked by lifecycle gate - connection already established');
-        // If timeout creation is blocked, resolve immediately
-        if (!resolved) {
-          resolved = true;
-          testPeerConnection.close();
-          resolve({
-            hasSTUN: false,
-            candidates,
-            latency: Date.now() - startTime
-          });
-        }
-        return;
-      }
-      
-      const timeout = registerTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          testPeerConnection.close();
-          resolve({
-            hasSTUN: false,
-            candidates,
-            latency: Date.now() - startTime
-          });
-        }
-      }, 10000, 'STUN connectivity test timeout');
-      
-      if (!timeout) {
-        console.log('⏭️ STUN connectivity test timeout blocked - connection already established');
-        // If timeout is blocked, resolve immediately
-        if (!resolved) {
-          resolved = true;
-          testPeerConnection.close();
-          resolve({
-            hasSTUN: false,
-            candidates,
-            latency: Date.now() - startTime
-          });
-        }
-      }
-    }).catch(() => {
-      // Fallback if import fails - use direct setTimeout for network testing
-      // This is acceptable since network testing happens before connection establishment
-      const timeout = setTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          testPeerConnection.close();
-          resolve({
-            hasSTUN: false,
-            candidates,
-            latency: Date.now() - startTime
-          });
-        }
-      }, 10000);
-    });
-
-    testPeerConnection.onicecandidate = (event) => {
-      if (event.candidate && event.candidate.type) {
-        candidates.push(event.candidate.type);
-        
-        if (event.candidate.type === 'srflx' && !resolved) {
-          resolved = true;
-          // Note: We can't clear the registered timeout directly, but it will be cleaned up by the lifecycle system
-          testPeerConnection.close();
-          resolve({
-            hasSTUN: true,
-            candidates,
-            latency: Date.now() - startTime
-          });
-        }
-      }
-    };
-
-    // Create a dummy data channel to trigger ICE gathering
-    testPeerConnection.createDataChannel('test');
-    testPeerConnection.createOffer().then(offer => {
-      return testPeerConnection.setLocalDescription(offer);
-    }).catch(() => {
-      if (!resolved) {
-        resolved = true;
-        // Note: We can't clear the registered timeout directly, but it will be cleaned up by the lifecycle system
-        testPeerConnection.close();
-        resolve({
-          hasSTUN: false,
-          candidates,
-          latency: Date.now() - startTime
-        });
-      }
-    });
-  });
+  console.log('⏭️ REMOVED: STUN connectivity testing disabled');
+  console.log('🔄 ICE gathering will handle STUN discovery during connection establishment');
+  
+  // Return default result - STUN testing will happen during ICE gathering
+  return {
+    hasSTUN: true,
+    candidates: [],
+    latency: 0
+  };
 }
 
 /**
- * Test TURN server connectivity
+ * REMOVED: TURN server connectivity testing (Requirements 4.1, 4.3, 4.4, 4.5)
+ * Redundant TURN discovery calls beyond ICE gathering eliminated
+ * ICE gathering will handle TURN discovery during connection establishment
  */
 async function testTURNConnectivity(): Promise<{
   hasTURN: boolean;
   workingServers: string[];
   latency: number;
 }> {
-  const startTime = Date.now();
-  const workingServers: string[] = [];
+  console.log('⏭️ REMOVED: TURN connectivity testing disabled');
+  console.log('🔄 ICE gathering will handle TURN discovery during connection establishment');
   
-  // Test the first available TURN server
-  const turnServers = process.env.NODE_ENV === 'production' 
-    ? PRODUCTION_TURN_SERVERS 
-    : FREE_TURN_SERVERS;
-
-  for (const turnConfig of turnServers) {
-    if (!turnConfig.username || !turnConfig.credential) continue;
-
-    try {
-      const result = await testSingleTURNServer(turnConfig);
-      if (result.working) {
-        workingServers.push(Array.isArray(turnConfig.urls) ? turnConfig.urls[0] : turnConfig.urls);
-      }
-    } catch (error) {
-      console.warn('TURN server test failed:', error);
-    }
-  }
-
+  // Return default result - TURN testing will happen during ICE gathering
   return {
-    hasTURN: workingServers.length > 0,
-    workingServers,
-    latency: Date.now() - startTime
+    hasTURN: true,
+    workingServers: [],
+    latency: 0
   };
 }
 
 /**
- * Test a single TURN server
+ * REMOVED: Single TURN server testing (Requirements 4.1, 4.3, 4.4, 4.5)
+ * Redundant TURN discovery calls beyond ICE gathering eliminated
+ * ICE gathering will handle TURN discovery during connection establishment
  */
 async function testSingleTURNServer(turnConfig: TURNServerConfig): Promise<{
   working: boolean;
   candidates: string[];
 }> {
-  return new Promise((resolve) => {
-    const candidates: string[] = [];
-    // Direct RTCPeerConnection creation is acceptable here since this is for TURN testing
-    // before any actual WebRTC connection is established
-    const testPeerConnection = new RTCPeerConnection({
-      iceServers: [{
-        urls: Array.isArray(turnConfig.urls) ? turnConfig.urls[0] : turnConfig.urls,
-        username: turnConfig.username,
-        credential: turnConfig.credential
-      }]
-    });
-
-    let resolved = false;
-    
-    // Import registerTimeout to use the blocking mechanism
-    import('./webrtc-manager').then(({ registerTimeout, enforceTimeoutCreationGate }) => {
-      // Check lifecycle gate enforcement first
-      if (enforceTimeoutCreationGate()) {
-        console.log('⏭️ TURN server test timeout blocked by lifecycle gate - connection already established');
-        // If timeout creation is blocked, resolve immediately
-        if (!resolved) {
-          resolved = true;
-          testPeerConnection.close();
-          resolve({ working: false, candidates });
-        }
-        return;
-      }
-      
-      const timeout = registerTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          testPeerConnection.close();
-          resolve({ working: false, candidates });
-        }
-      }, 15000, 'TURN server test timeout'); // Longer timeout for TURN
-      
-      if (!timeout) {
-        console.log('⏭️ TURN server test timeout blocked - connection already established');
-        // If timeout is blocked, resolve immediately
-        if (!resolved) {
-          resolved = true;
-          testPeerConnection.close();
-          resolve({ working: false, candidates });
-        }
-      }
-    }).catch(() => {
-      // Fallback if import fails - use direct setTimeout for TURN testing
-      // This is acceptable since TURN testing happens before connection establishment
-      const timeout = setTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          testPeerConnection.close();
-          resolve({ working: false, candidates });
-        }
-      }, 15000);
-    });
-
-    testPeerConnection.onicecandidate = (event) => {
-      if (event.candidate && event.candidate.type) {
-        candidates.push(event.candidate.type);
-        
-        if (event.candidate.type === 'relay' && !resolved) {
-          resolved = true;
-          // Note: We can't clear the registered timeout directly, but it will be cleaned up by the lifecycle system
-          testPeerConnection.close();
-          resolve({ working: true, candidates });
-        }
-      }
-    };
-
-    // Create a dummy data channel to trigger ICE gathering
-    testPeerConnection.createDataChannel('test');
-    testPeerConnection.createOffer().then(offer => {
-      return testPeerConnection.setLocalDescription(offer);
-    }).catch(() => {
-      if (!resolved) {
-        resolved = true;
-        // Note: We can't clear the registered timeout directly, but it will be cleaned up by the lifecycle system
-        testPeerConnection.close();
-        resolve({ working: false, candidates });
-      }
-    });
-  });
+  console.log('⏭️ REMOVED: Single TURN server testing disabled');
+  console.log('🔄 ICE gathering will handle TURN discovery during connection establishment');
+  
+  // Return default result - TURN testing will happen during ICE gathering
+  return {
+    working: true,
+    candidates: []
+  };
 }
 
 /**
  * Enhanced ICE restart with proper candidate gathering
  * Requirements: 5.5 - Lifecycle gate enforcement for ICE restart
+ * Requirements: 2.4 - ICE restart disabled to prevent connection time extension
  */
 export async function performICERestart(
   peerConnection: RTCPeerConnection,
   isInitiator: boolean
 ): Promise<boolean> {
   try {
+    // Requirements 2.4: ICE restart is disabled to prevent connection time extension
+    console.warn('🚫 ICE restart is disabled by aggressive timeout controller');
+    console.warn('🚫 ICE restart extends connection time and is replaced by TURN-first strategy');
+    console.warn('🔄 Use TURN-first ICE configuration instead of ICE restart');
+    
+    // Log the blocked restart attempt
+    console.log('❌ performICERestart() blocked - connection should use TURN-first strategy');
+    console.log('📊 ICE restart attempts extend connection time beyond 5-second target');
+    
+    return false; // Always return false - ICE restart is disabled
+    
+    // Legacy ICE restart logic is commented out to prevent connection time extension
+    /*
     // Import WebRTCManager to check lifecycle gate enforcement
     const { isICERestartBlocked, enforceICEConfigurationGate } = await import('./webrtc-manager');
     
@@ -621,22 +382,25 @@ export async function performICERestart(
       console.log('ICE restart will be initiated by remote peer');
       return true;
     }
+    */
   } catch (error) {
-    console.error('❌ ICE restart failed:', error);
+    console.error('❌ ICE restart blocked (disabled for performance):', error);
     return false;
   }
 }
 
 /**
  * Monitor ICE connection state with proper handling for restrictive networks
+ * Requirements: 2.4 - ICE restart logic disabled to prevent connection time extension
  */
 export class NetworkTraversalMonitor {
   private peerConnection: RTCPeerConnection;
   private onStateChange: (state: string, details: any) => void;
   private iceRestartAttempts = 0;
-  private maxICERestartAttempts = 3;
+  private maxICERestartAttempts = 0; // Disabled: was 3, now 0 to prevent restarts
   private connectionStartTime = Date.now();
   private lastStableConnection = 0;
+  private iceRestartDisabled = true; // Requirements 2.4: Disable ICE restart logic
 
   constructor(
     peerConnection: RTCPeerConnection, 
@@ -644,6 +408,10 @@ export class NetworkTraversalMonitor {
   ) {
     this.peerConnection = peerConnection;
     this.onStateChange = onStateChange;
+    
+    console.log('🚫 NetworkTraversalMonitor: ICE restart logic disabled for performance');
+    console.log('🔄 Using TURN-first strategy instead of ICE restart for reliability');
+    
     this.setupMonitoring();
   }
 
@@ -682,7 +450,19 @@ export class NetworkTraversalMonitor {
         case 'failed':
           console.log(`❌ ICE connection failed after ${connectionDuration}ms`);
           
-          if (this.iceRestartAttempts < this.maxICERestartAttempts) {
+          // Requirements 2.4: ICE restart logic disabled to prevent connection time extension
+          if (this.iceRestartDisabled) {
+            console.log('🚫 ICE restart disabled - using TURN-first strategy instead');
+            console.log('🔄 Connection should rely on TURN relay for reliability');
+            
+            this.onStateChange('ice-failed-no-restart', { 
+              state, 
+              duration: connectionDuration,
+              restartDisabled: true,
+              message: 'ICE restart disabled - use TURN-first strategy'
+            });
+          } else if (this.iceRestartAttempts < this.maxICERestartAttempts) {
+            // Legacy restart logic (should not execute when iceRestartDisabled = true)
             this.iceRestartAttempts++;
             console.log(`🔄 Attempting ICE restart ${this.iceRestartAttempts}/${this.maxICERestartAttempts}`);
             
@@ -728,9 +508,33 @@ export class NetworkTraversalMonitor {
       connectionDuration: Date.now() - this.connectionStartTime,
       timeSinceLastStable: Date.now() - this.lastStableConnection,
       iceRestartAttempts: this.iceRestartAttempts,
+      iceRestartDisabled: this.iceRestartDisabled, // Requirements 2.4
+      maxICERestartAttempts: this.maxICERestartAttempts,
       currentICEState: this.peerConnection.iceConnectionState,
       currentConnectionState: this.peerConnection.connectionState
     };
+  }
+
+  /**
+   * Disable ICE restart logic completely
+   * Requirements: 2.4 - Remove redundant ICE restart logic that extends connection time
+   */
+  public disableICERestart(): void {
+    console.log('🚫 Disabling ICE restart logic in NetworkTraversalMonitor');
+    
+    this.iceRestartDisabled = true;
+    this.maxICERestartAttempts = 0;
+    this.iceRestartAttempts = 0;
+    
+    console.log('✅ ICE restart logic disabled - connection will rely on TURN-first strategy');
+  }
+
+  /**
+   * Check if ICE restart is disabled
+   * Requirements: 2.4 - Allow checking if restart logic is disabled
+   */
+  public isICERestartDisabled(): boolean {
+    return this.iceRestartDisabled;
   }
 }
 

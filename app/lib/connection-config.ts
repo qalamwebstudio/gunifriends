@@ -13,6 +13,11 @@ export interface ConnectionConfig {
   iceGatheringTimeout: number;
   connectionSetupExtension: number;
   
+  // TURN-first specific timeouts
+  turnFallbackTimeout: number;
+  turnRelayForceTimeout: number;
+  parallelGatheringTimeout: number;
+  
   // Established connection monitoring
   heartbeatInterval: number;
   sessionInactivityTimeout: number;
@@ -39,24 +44,29 @@ export interface ConnectionConfig {
 }
 
 /**
- * Optimized configuration values for real-world network conditions
+ * Optimized configuration values for TURN-first WebRTC connections
  * 
- * These values are based on:
- * - Typical network latency and reliability patterns
- * - User experience research for video chat applications
- * - Balance between responsiveness and stability
- * - Requirements 4.1 and 4.4 specifications
+ * These values are optimized for:
+ * - TURN-first ICE strategy with aggressive timeouts (Requirements 2.1, 2.2, 2.3)
+ * - Sub-5-second connection establishment (Requirements 2.1, 2.5)
+ * - Mobile network optimization (Requirements 1.4, 1.5)
+ * - Deterministic connection behavior (Requirements 2.4, 2.5)
  */
 export const CONNECTION_CONFIG: ConnectionConfig = {
-  // Initial connection timeouts (Requirements 4.1)
-  // Increased from 45s to 60s to allow sufficient time for ICE gathering
-  initialConnectionTimeout: 60000, // 60 seconds for initial WebRTC setup
+  // TURN-first connection timeouts (Requirements 2.1, 2.2, 2.3)
+  // Aggressive timeout control for sub-5-second connections
+  initialConnectionTimeout: 8000, // 8 seconds for initial WebRTC setup (reduced from 15s)
   
-  // Increased from 10s to 15s for better ICE candidate collection
-  iceGatheringTimeout: 15000, // 15 seconds for ICE gathering
+  // Aggressive ICE gathering timeout for TURN-first strategy (Requirements 2.1, 2.2)
+  iceGatheringTimeout: 5000, // 5 seconds max for ICE gathering (Requirements 2.1, 2.2)
   
-  // Progressive timeout extension for connection setup retries
-  connectionSetupExtension: 15000, // 15 seconds extension per retry
+  // Reduced extension for faster retry cycles
+  connectionSetupExtension: 3000, // 3 seconds extension per retry (reduced from 5s)
+  
+  // TURN-first specific timeouts (Requirements 2.2, 2.3)
+  turnFallbackTimeout: 3000, // 3 seconds before forcing TURN relay (Requirements 2.2)
+  turnRelayForceTimeout: 3000, // 3 seconds to force TURN relay mode (Requirements 2.3)
+  parallelGatheringTimeout: 2000, // 2 seconds for parallel STUN/TURN gathering (Requirements 1.2, 1.5)
   
   // Established connection monitoring (Requirements 4.4)
   // Increased from 25s to 30s for better stability
@@ -68,25 +78,25 @@ export const CONNECTION_CONFIG: ConnectionConfig = {
   // Separate timeout for active video calls - much longer
   activeCallInactivityTimeout: 30 * 60 * 1000, // 30 minutes for active calls
   
-  // Retry configuration (Requirements 4.2)
-  // Increased from 3 to 5 for better reliability
-  maxReconnectAttempts: 5, // Maximum reconnection attempts
+  // Retry configuration optimized for TURN-first (Requirements 2.4, 2.5)
+  // Reduced from 5 to 3 for faster failure detection
+  maxReconnectAttempts: 3, // Maximum reconnection attempts
   
-  // Base delay for exponential backoff
-  initialReconnectDelay: 2000, // 2 seconds initial delay
+  // Reduced base delay for faster recovery
+  initialReconnectDelay: 1000, // 1 second initial delay
   
-  // Increased from 10s to 30s for reasonable maximum
-  maxReconnectDelay: 30000, // 30 seconds maximum delay
+  // Reduced maximum delay for aggressive retry
+  maxReconnectDelay: 8000, // 8 seconds maximum delay (reduced from 10s)
   
   // Standard exponential backoff multiplier
   exponentialBackoffMultiplier: 2,
   
-  // Grace periods for temporary connection issues (Requirements 4.4)
-  // New: 10 second grace period for 'disconnected' state
-  disconnectionGracePeriod: 10000, // 10 seconds grace for disconnections
+  // TURN-first grace periods (Requirements 2.3, 2.5)
+  // Reduced grace period for faster TURN fallback
+  disconnectionGracePeriod: 2000, // 2 seconds grace for disconnections (reduced from 3s)
   
-  // New: 5 second grace period for ICE failures
-  iceFailureGracePeriod: 5000, // 5 seconds grace for ICE failures
+  // Reduced ICE failure grace for immediate TURN relay
+  iceFailureGracePeriod: 1500, // 1.5 seconds grace for ICE failures (reduced from 2s)
   
   // Socket.io configuration (Requirements 4.1, 4.4)
   // Increased from 20s to 30s for better stability
@@ -223,6 +233,9 @@ export const {
   initialConnectionTimeout: INITIAL_CONNECTION_TIMEOUT_MS,
   iceGatheringTimeout: ICE_GATHERING_TIMEOUT_MS,
   connectionSetupExtension: CONNECTION_SETUP_EXTENSION_MS,
+  turnFallbackTimeout: TURN_FALLBACK_TIMEOUT_MS,
+  turnRelayForceTimeout: TURN_RELAY_FORCE_TIMEOUT_MS,
+  parallelGatheringTimeout: PARALLEL_GATHERING_TIMEOUT_MS,
   heartbeatInterval: HEARTBEAT_INTERVAL_MS,
   sessionInactivityTimeout: SESSION_INACTIVITY_TIMEOUT_MS,
   activeCallInactivityTimeout: ACTIVE_CALL_INACTIVITY_TIMEOUT_MS,

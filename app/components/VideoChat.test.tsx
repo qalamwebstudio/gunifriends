@@ -6,12 +6,16 @@ import * as fc from 'fast-check';
 
 // Mock the WebRTC APIs
 const mockRTCPeerConnectionConstructor = jest.fn().mockImplementation(() => ({
-  addTrack: jest.fn(),
+  addTrack: jest.fn().mockReturnValue({ track: { kind: 'video', label: 'mock-track' } }), // Return a mock sender
   createOffer: jest.fn().mockResolvedValue({ type: 'offer', sdp: 'mock-sdp' }),
   createAnswer: jest.fn().mockResolvedValue({ type: 'answer', sdp: 'mock-sdp' }),
   setLocalDescription: jest.fn().mockResolvedValue(undefined),
   setRemoteDescription: jest.fn().mockResolvedValue(undefined),
   addIceCandidate: jest.fn().mockResolvedValue(undefined),
+  getSenders: jest.fn().mockReturnValue([
+    { track: { kind: 'video', label: 'mock-video' } },
+    { track: { kind: 'audio', label: 'mock-audio' } }
+  ]),
   close: jest.fn(),
   connectionState: 'new',
   iceConnectionState: 'new',

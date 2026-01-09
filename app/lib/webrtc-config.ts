@@ -21,35 +21,84 @@ export interface WebRTCConfig {
 }
 
 /**
- * Get WebRTC configuration optimized for network traversal
- * Automatically detects network environment and configures TURN servers
+ * Get WebRTC configuration optimized for TURN-first strategy and aggressive timeouts
+ * Requirements: 1.1, 1.2, 1.3, 1.4, 1.5 - TURN-first ICE configuration with parallel gathering
  */
-export async function getWebRTCConfiguration(forceRelay: boolean = false): Promise<WebRTCConfig> {
+export async function getWebRTCConfiguration(forceRelay: boolean = false, networkType: 'mobile' | 'wifi' | 'unknown' = 'unknown'): Promise<WebRTCConfig> {
   try {
-    // Test TURN connectivity first if forcing relay mode
-    if (forceRelay) {
-      console.log('🔍 Testing TURN connectivity before forcing relay mode...');
-      const hasTurn = await quickTURNCheck();
-      if (!hasTurn) {
-        console.error('❌ No working TURN servers found but relay mode requested!');
-        console.error('This will cause immediate connection failure.');
-        // Continue anyway but log the issue
-      }
+    // Import the TURN-first ICE manager
+    const { turnFirstICEManager, validateTurnServerSetup } = await import('./turn-first-ice-manager');
+    
+    // Validate TURN server setup first
+    const validation = await validateTurnServerSetup();
+    
+    if (validation.workingServers === 0 && forceRelay) {
+      console.error('❌ No working TURN servers found but relay mode requested!');
+      console.error('This will cause immediate connection failure.');
+      throw new Error('Relay mode requested but no TURN servers available');
     }
     
-    // Get optimized configuration based on network environment
-    const config = await getNetworkTraversalConfig(forceRelay);
+    // Generate TURN-first optimized configuration (Requirements 1.1, 1.2, 1.3)
+    const optimizedConfig = turnFirstICEManager.generateOptimizedConfig(networkType);
     
-    console.log(`🌐 WebRTC configuration loaded: ${config.iceServers.length} ICE servers`);
-    console.log(`🔧 ICE transport policy: ${config.iceTransportPolicy}`);
+    // Convert to WebRTCConfig format with TURN-first optimizations
+    const config: WebRTCConfig = {
+      iceServers: optimizedConfig.iceServers,
+      iceTransportPolicy: optimizedConfig.iceTransportPolicy,
+      iceCandidatePoolSize: optimizedConfig.iceCandidatePoolSize,
+      bundlePolicy: optimizedConfig.bundlePolicy as RTCBundlePolicy,
+      rtcpMuxPolicy: optimizedConfig.rtcpMuxPolicy as RTCRtcpMuxPolicy
+    };
     
-    // Log TURN server availability
+    // Apply network-specific optimizations (Requirements 1.4, 1.5)
+    if (networkType === 'mobile') {
+      // Mobile networks benefit from relay-first strategy
+      config.iceTransportPolicy = 'all'; // Allow both but prioritize TURN
+      config.iceCandidatePoolSize = 6; // Larger pool for mobile networks
+    } else if (networkType === 'wifi') {
+      // College Wi-Fi often requires TURN for traversal
+      config.iceTransportPolicy = 'all'; // Allow both STUN and TURN
+      config.iceCandidatePoolSize = 4; // Standard pool size
+    }
+    
+    // Override transport policy if forcing relay (Requirements 1.4)
+    if (forceRelay) {
+      config.iceTransportPolicy = 'relay';
+      console.log('🔒 FORCED RELAY MODE: Only TURN servers will be used');
+    }
+    
+    console.log(`🌐 TURN-first WebRTC configuration loaded: ${config.iceServers.length} ICE servers`);
+    console.log(`🔧 ICE transport policy: ${config.iceTransportPolicy} (network: ${networkType})`);
+    console.log(`📊 ICE candidate pool size: ${config.iceCandidatePoolSize}`);
+    
+    // Validate TURN server configuration (Requirements 1.1, 1.2)
     const turnServers = config.iceServers.filter(server => 
       (Array.isArray(server.urls) ? server.urls.some(url => url.startsWith('turn')) : server.urls.startsWith('turn'))
     );
     
     if (turnServers.length > 0) {
       console.log(`✅ ${turnServers.length} TURN servers configured for NAT traversal`);
+      
+      // Verify both UDP and TCP TURN servers are available (Requirements 1.1)
+      const udpTurnServers = turnServers.filter(server => {
+        const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
+        return urls.some(url => url.includes('turn:') && !url.includes('?transport=tcp'));
+      });
+      
+      const tcpTurnServers = turnServers.filter(server => {
+        const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
+        return urls.some(url => url.includes('?transport=tcp'));
+      });
+      
+      console.log(`   UDP TURN servers: ${udpTurnServers.length}`);
+      console.log(`   TCP TURN servers: ${tcpTurnServers.length}`);
+      
+      if (udpTurnServers.length === 0) {
+        console.warn('⚠️ No UDP TURN servers configured - may impact performance');
+      }
+      if (tcpTurnServers.length === 0) {
+        console.warn('⚠️ No TCP TURN servers configured - may fail in restrictive networks');
+      }
       
       // Log individual TURN servers for debugging
       turnServers.forEach((server, index) => {
@@ -59,30 +108,62 @@ export async function getWebRTCConfiguration(forceRelay: boolean = false): Promi
       });
     } else {
       console.warn('⚠️ No TURN servers configured - may fail in restrictive networks');
-      
-      if (forceRelay) {
-        throw new Error('Relay mode requested but no TURN servers available');
-      }
+    }
+    
+    // Log validation results
+    if (validation.recommendations.length > 0) {
+      console.warn('⚠️ TURN server recommendations:');
+      validation.recommendations.forEach(rec => console.warn(`   - ${rec}`));
     }
     
     return config;
   } catch (error) {
-    console.error('❌ Failed to get WebRTC configuration:', error);
+    console.error('❌ Failed to get TURN-first WebRTC configuration:', error);
     
-    // Fallback configuration with basic STUN servers
-    const fallbackConfig = {
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun.services.mozilla.com' }
-      ],
-      iceCandidatePoolSize: 10,
-      bundlePolicy: 'max-bundle' as RTCBundlePolicy,
-      rtcpMuxPolicy: 'require' as RTCRtcpMuxPolicy
-    };
+    // Fallback to optimized configuration without TURN-first manager
+    console.log('🔄 Falling back to optimized configuration without TURN-first manager...');
     
-    console.log('🔄 Using fallback STUN-only configuration');
-    return fallbackConfig;
+    try {
+      // Create optimized fallback configuration with TURN-first principles
+      const fallbackConfig: WebRTCConfig = {
+        iceServers: [
+          // STUN servers for reflexive candidates
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+          // Add TURN servers if available from environment
+          ...(process.env.TURN_SERVER_URL ? [{
+            urls: process.env.TURN_SERVER_URL,
+            username: process.env.TURN_USERNAME || '',
+            credential: process.env.TURN_PASSWORD || ''
+          }] : [])
+        ],
+        iceTransportPolicy: forceRelay ? 'relay' : 'all',
+        iceCandidatePoolSize: networkType === 'mobile' ? 6 : 4, // Optimized pool size
+        bundlePolicy: 'max-bundle' as RTCBundlePolicy,
+        rtcpMuxPolicy: 'require' as RTCRtcpMuxPolicy
+      };
+      
+      console.log('✅ Optimized fallback configuration loaded successfully');
+      return fallbackConfig;
+    } catch (legacyError) {
+      console.error('❌ Optimized fallback configuration also failed:', legacyError);
+      
+      // Final fallback configuration with basic STUN servers
+      const basicFallbackConfig: WebRTCConfig = {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+          { urls: 'stun:stun.services.mozilla.com' }
+        ],
+        iceTransportPolicy: forceRelay ? 'relay' : 'all',
+        iceCandidatePoolSize: 4,
+        bundlePolicy: 'max-bundle' as RTCBundlePolicy,
+        rtcpMuxPolicy: 'require' as RTCRtcpMuxPolicy
+      };
+      
+      console.log('🔄 Using basic fallback STUN-only configuration');
+      return basicFallbackConfig;
+    }
   }
 }
 
@@ -139,7 +220,9 @@ export const MediaConstraints = {
 } as const;
 
 /**
- * Test network connectivity for WebRTC with enhanced TURN testing
+ * REMOVED: Network connectivity testing (Requirements 4.1, 4.2, 4.3, 4.4, 4.5)
+ * Pre-connection quality checks and bandwidth tests eliminated
+ * Connection now starts immediately after media readiness using TURN-first strategy
  */
 export async function testWebRTCConnectivity(): Promise<{
   hasInternet: boolean;
@@ -149,131 +232,31 @@ export async function testWebRTCConnectivity(): Promise<{
   networkType: 'open' | 'moderate' | 'restrictive';
   recommendedPolicy: 'all' | 'relay';
 }> {
-  try {
-    // Use the enhanced network detection
-    const networkEnv = await detectNetworkEnvironment();
-    
-    return {
-      hasInternet: true,
-      hasSTUN: networkEnv.networkType !== 'restrictive',
-      hasTURN: !networkEnv.isRestrictive,
-      latency: networkEnv.latency,
-      networkType: networkEnv.networkType,
-      recommendedPolicy: networkEnv.recommendedPolicy
-    };
-  } catch (error) {
-    console.error('Network connectivity test failed:', error);
-    
-    // Fallback test
-    const result = {
-      hasInternet: false,
-      hasSTUN: false,
-      hasTURN: false,
-      latency: 0,
-      networkType: 'restrictive' as 'open' | 'moderate' | 'restrictive',
-      recommendedPolicy: 'relay' as 'all' | 'relay'
-    };
-
-    try {
-      // Test basic internet connectivity
-      const startTime = Date.now();
-      const response = await fetch('/api/health', { 
-        method: 'GET',
-        cache: 'no-cache',
-        signal: AbortSignal.timeout(5000)
-      });
-      
-      if (response.ok) {
-        result.hasInternet = true;
-        result.latency = Date.now() - startTime;
-      }
-
-      // Test STUN connectivity
-      result.hasSTUN = await testSTUNConnectivity();
-
-      // Determine network type based on results
-      if (result.hasSTUN && result.latency < 500) {
-        result.networkType = 'open';
-        result.recommendedPolicy = 'all';
-      } else if (result.hasSTUN && result.latency < 1000) {
-        result.networkType = 'moderate';
-        result.recommendedPolicy = 'all';
-      }
-
-    } catch (error) {
-      console.error('Fallback connectivity test failed:', error);
-    }
-
-    return result;
-  }
+  console.log('⏭️ REMOVED: WebRTC connectivity testing disabled');
+  console.log('🚀 Connection will use TURN-first ICE strategy without pre-connection probing');
+  
+  // Return safe default connectivity result immediately - no network probing
+  return {
+    hasInternet: true,
+    hasSTUN: true,
+    hasTURN: true,
+    latency: 0,
+    networkType: 'open',
+    recommendedPolicy: 'all'
+  };
 }
 
 /**
- * Test STUN server connectivity (simplified version)
+ * REMOVED: STUN connectivity testing (Requirements 4.1, 4.3, 4.4, 4.5)
+ * Redundant STUN discovery calls beyond ICE gathering eliminated
+ * Connection relies on TURN-first ICE strategy instead of pre-connection STUN probing
  */
 async function testSTUNConnectivity(): Promise<boolean> {
-  return new Promise((resolve) => {
-    // Direct RTCPeerConnection creation is acceptable here since this is for network testing
-    // before any actual WebRTC connection is established
-    const testPeerConnection = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-    });
-
-    let resolved = false;
-    
-    // Import registerTimeout to use the blocking mechanism
-    import('./webrtc-manager').then(({ registerTimeout }) => {
-      const timeout = registerTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          testPeerConnection.close();
-          resolve(false);
-        }
-      }, 8000, 'STUN connectivity test timeout'); // Reduced timeout
-      
-      if (!timeout) {
-        console.log('⏭️ STUN connectivity test timeout blocked - connection already established');
-        // If timeout is blocked, resolve immediately with false
-        if (!resolved) {
-          resolved = true;
-          testPeerConnection.close();
-          resolve(false);
-        }
-      }
-    }).catch(() => {
-      // Fallback if import fails - use direct setTimeout for network testing
-      // This is acceptable since network testing happens before connection establishment
-      const timeout = setTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          testPeerConnection.close();
-          resolve(false);
-        }
-      }, 8000);
-    });
-
-    testPeerConnection.onicecandidate = (event) => {
-      if (event.candidate && event.candidate.type === 'srflx' && !resolved) {
-        resolved = true;
-        // Note: We can't clear the registered timeout directly, but it will be cleaned up by the lifecycle system
-        testPeerConnection.close();
-        resolve(true);
-      }
-    };
-
-    // Create a dummy data channel to trigger ICE gathering
-    testPeerConnection.createDataChannel('test');
-    testPeerConnection.createOffer().then(offer => {
-      return testPeerConnection.setLocalDescription(offer);
-    }).catch(() => {
-      if (!resolved) {
-        resolved = true;
-        // Note: We can't clear the registered timeout directly, but it will be cleaned up by the lifecycle system
-        testPeerConnection.close();
-        resolve(false);
-      }
-    });
-  });
+  console.log('⏭️ REMOVED: STUN connectivity testing disabled');
+  console.log('🔄 ICE gathering will handle STUN discovery during connection establishment');
+  
+  // Always return true - STUN testing will happen during ICE gathering
+  return true;
 }
 
 // Export the enhanced network traversal components and TURN testing
@@ -425,22 +408,32 @@ export class ConnectionQualityMonitor {
   }
 
   start() {
-    // Import registerInterval to use the blocking mechanism
-    import('./webrtc-manager').then(({ registerInterval }) => {
-      this.intervalId = registerInterval(() => {
-        this.checkQuality();
-      }, 5000, 'Connection quality monitoring interval'); // Check every 5 seconds
-      
-      if (!this.intervalId) {
-        console.log('⏭️ Connection quality monitoring interval blocked - connection already established');
-      }
-    }).catch(() => {
-      // Fallback if import fails - use direct setInterval for quality monitoring
-      // This should be rare and quality monitoring can continue even after connection
-      this.intervalId = setInterval(() => {
-        this.checkQuality();
-      }, 5000);
-    });
+    // REMOVED: Pre-connection quality monitoring (Requirements 4.2, 4.3)
+    // Quality monitoring now only starts after connection is established
+    console.log('⏭️ REMOVED: Pre-connection quality monitoring disabled');
+    console.log('🔄 Quality monitoring will start after connection establishment');
+    
+    // Only start monitoring if connection is already established
+    if (this.peerConnection.connectionState === 'connected') {
+      // Import registerInterval to use the blocking mechanism
+      import('./webrtc-manager').then(({ registerInterval }) => {
+        this.intervalId = registerInterval(() => {
+          this.checkQuality();
+        }, 5000, 'Connection quality monitoring interval'); // Check every 5 seconds
+        
+        if (!this.intervalId) {
+          console.log('⏭️ Connection quality monitoring interval blocked - connection already established');
+        }
+      }).catch(() => {
+        // Fallback if import fails - use direct setInterval for quality monitoring
+        // This should be rare and quality monitoring can continue even after connection
+        this.intervalId = setInterval(() => {
+          this.checkQuality();
+        }, 5000);
+      });
+    } else {
+      console.log('⏭️ Quality monitoring deferred until connection is established');
+    }
   }
 
   stop() {
