@@ -32,6 +32,7 @@ export default function Page() {
   const [searchStartTime, setSearchStartTime] = useState<Date | null>(null);
   const [searchDuration, setSearchDuration] = useState<number>(0);
   const [showProfileMenu, setShowProfileMenu] = useState<boolean>(false);
+  const [activeUserCount, setActiveUserCount] = useState<number>(0);
 
   const [sessionRestoreAttempted, setSessionRestoreAttempted] = useState<boolean>(false);
 
@@ -284,6 +285,15 @@ export default function Page() {
         setSessionRestoreAttempted(true);
         newSocket.emit('request-session-restore');
       }
+
+      // Request active user count
+      newSocket.emit('get-active-user-count');
+    });
+
+    // Listen for active user count updates
+    newSocket.on('active-user-count', (count: number) => {
+      console.log('👥 Active users:', count);
+      setActiveUserCount(count);
     });
 
     newSocket.on('disconnect', () => {
@@ -593,6 +603,11 @@ export default function Page() {
                   <span className={`text-sm font-medium ${getQueueStatusColor()}`}>
                     {getQueueStatusMessage()}
                   </span>
+                  {activeUserCount > 0 && (
+                    <span className="text-xs text-gray-600 bg-gray-100 px-2 py-1 rounded-full">
+                      {activeUserCount} active users
+                    </span>
+                  )}
                 </div>
 
                 {/* Additional queue information */}
@@ -755,6 +770,11 @@ export default function Page() {
                   <span className={`text-sm font-medium ${getQueueStatusColor()}`}>
                     {getQueueStatusMessage()}
                   </span>
+                  {activeUserCount > 0 && (
+                    <span className="text-xs text-gray-600 bg-gray-100 px-2 py-1 rounded-full">
+                      {activeUserCount} active users
+                    </span>
+                  )}
                 </div>
 
                 {/* Additional queue information */}

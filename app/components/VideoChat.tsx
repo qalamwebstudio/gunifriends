@@ -5,7 +5,6 @@ import { Socket } from 'socket.io-client';
 import Image from 'next/image';
 import { ClientToServerEvents, ServerToClientEvents } from '../types';
 import ReportModal from './ReportModal';
-import PerformanceDashboard from './PerformanceDashboard';
 import {
   getWebRTCConfiguration,
   getMediaStreamWithFallback,
@@ -118,9 +117,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
   });
 
   // WebRTC Performance Monitoring Integration (Requirements: 10.1, 10.2, 10.3, 10.4, 10.5)
-  const [performanceMonitoringActive, setPerformanceMonitoringActive] = useState(false);
   const [connectionQuality, setConnectionQuality] = useState<'good' | 'fair' | 'poor'>('good');
-  const [showPerformanceDashboard, setShowPerformanceDashboard] = useState(false);
 
   // SDP Safety: Prevent race conditions in offer/answer negotiation
   const [isOfferInProgress, setIsOfferInProgress] = useState(false);
@@ -1285,9 +1282,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       const stream = await getMediaStreamWithFallback();
       
       // Record media ready milestone (Requirements: 10.1)
-      if (performanceMonitoringActive) {
-        console.log('📊 Recorded media ready milestone');
-      }
+      console.log('📊 Recorded media ready milestone');
       
 
       // Attach to video element immediately
@@ -3025,22 +3020,6 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     setIsNegotiationInProgress(false);
     console.log('🔓 SDP SAFETY: All negotiation locks reset during cleanup');
     
-    // Complete performance monitoring (Requirements: 10.1, 10.4)
-    if (performanceMonitoringActive && peerConnectionRef.current) {
-      const connectionState = peerConnectionRef.current.connectionState;
-      const iceConnectionState = peerConnectionRef.current.iceConnectionState;
-      const success = connectionState === 'connected' || iceConnectionState === 'connected';
-      
-      console.log('📊 Performance monitoring completed');
-      
-      // Stop real-time monitoring
-      console.log('📊 Performance monitoring stopped');
-      
-      console.log('📊 Completed performance monitoring');
-      setPerformanceMonitoringActive(false);
-    }
-    
-
     // Send browser closing event if socket is still connected (Requirements 8.1)
     if (socket && socket.connected) {
       console.log('🧹 CLEANUP: Sending browser closing event to server');
@@ -3160,13 +3139,6 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
   const endCall = () => {
     console.log('🛑 USER ACTION: End call button clicked');
     socket.emit('end-call');
-    cleanup();
-    onCallEnd();
-  };
-
-  const skipUser = () => {
-    console.log('⏭️ USER ACTION: Skip user button clicked');
-    socket.emit('skip-user');
     cleanup();
     onCallEnd();
   };
@@ -3417,9 +3389,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         setForceRelayMode(true);
         
         // Record TURN fallback milestone (Requirements: 10.1)
-        if (performanceMonitoringActive) {
-          console.log('📊 Recorded TURN fallback milestone');
-        }
+        console.log('📊 Recorded TURN fallback milestone');
 
         // Recreate peer connection with relay-only mode
         const newConfig = await getWebRTCConfiguration(true);
@@ -3668,12 +3638,10 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         iceCandidateCount++;
         
         // Record ICE candidate milestone (Requirements: 10.2)
-        if (performanceMonitoringActive) {
-          console.log('📊 Recorded ICE candidate milestone');
-          if (iceCandidateCount === 1) {
-            // Use the iceCandidate method to record the first candidate
-            console.log('📊 Recorded first ICE candidate milestone');
-          }
+        console.log('📊 Recorded ICE candidate milestone');
+        if (iceCandidateCount === 1) {
+          // Use the iceCandidate method to record the first candidate
+          console.log('📊 Recorded first ICE candidate milestone');
         }
 
         // Track different candidate types
@@ -3726,9 +3694,8 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
 
       if (peerConnection.iceGatheringState === 'gathering') {
         // Record ICE gathering start milestone (Requirements: 10.1)
-        if (performanceMonitoringActive) {
-          console.log('📊 Recorded ICE gathering start milestone');
-        }
+        console.log('📊 Recorded ICE gathering start milestone');
+        
         // Longer timeout for restrictive networks to allow TURN candidates
         const timeout = (networkType === 'restrictive' || forceRelayMode) ? 25000 : ICE_GATHERING_TIMEOUT_CONST;
 
@@ -3768,9 +3735,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
           console.log('🎉 REMOTE STREAM: First video frame received and displayed');
           
           // Record first remote frame milestone (Requirements: 10.1)
-          if (performanceMonitoringActive) {
-            console.log('📊 Recorded first remote frame milestone');
-          }
+          console.log('📊 Recorded first remote frame milestone');
           
           remoteVideoRef.current?.removeEventListener('loadeddata', handleFirstFrame);
         };
@@ -3797,10 +3762,9 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
           setReconnectAttempts(0);
           
           // Record connection established milestone (Requirements: 10.1)
-          if (performanceMonitoringActive) {
-            console.log('📊 Connection established milestone recorded');
-            console.log('📊 Started real-time connection quality monitoring');
-          }
+          console.log('📊 Connection established milestone recorded');
+          console.log('📊 Started real-time connection quality monitoring');
+          
           setIsReconnecting(false);
           setIceRestartAttempts(0); // Reset ICE restart attempts on successful connection
 
@@ -4500,7 +4464,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
 
   return (
     <>
-      <div className="min-h-screen bg-gray-900 flex flex-col">
+      <div className="min-h-screen bg-white flex flex-col">
       {/* Report Modal */}
       <ReportModal
         isOpen={isReportModalOpen}
@@ -4603,9 +4567,9 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
           ) : (
             /* Video Layout */
             <div className="px-3 md:px-0">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 md:gap-4 lg:gap-6 h-full min-h-[75vh] md:min-h-[70vh] max-w-full">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 md:gap-4 lg:gap-6 h-full min-h-[60vh] lg:min-h-[65vh] max-w-full">
                 {/* Partner Video (Left on Desktop, Top on Mobile) */}
-                <div className="relative bg-white rounded-xl md:rounded-2xl overflow-hidden shadow-lg border border-gray-200 h-[35vh] md:h-auto w-full max-w-full">
+                <div className="relative bg-white rounded-xl md:rounded-2xl overflow-hidden shadow-lg border border-gray-200 h-[35vh] lg:h-auto w-full max-w-full">
                   <video
                     ref={remoteVideoRef}
                     autoPlay
@@ -4659,7 +4623,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
                 </div>
 
                 {/* Your Video (Right on Desktop, Bottom on Mobile) */}
-                <div className="relative bg-white rounded-xl md:rounded-2xl overflow-hidden shadow-lg border border-gray-200 h-[35vh] md:h-auto w-full max-w-full">
+                <div className="relative bg-white rounded-xl md:rounded-2xl overflow-hidden shadow-lg border border-gray-200 h-[35vh] lg:h-auto w-full max-w-full">
                   <video
                     ref={localVideoRef}
                     autoPlay
@@ -4709,18 +4673,18 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
 
       {/* Controls */}
       <div className="bg-white border-t border-gray-200 p-3 md:p-4 lg:p-6" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
-        <div className="max-w-6xl mx-auto flex justify-center items-center space-x-3 md:space-x-4 lg:space-x-6 flex-wrap gap-y-2">
-          {/* Audio Toggle */}
+        <div className="max-w-6xl mx-auto flex justify-center items-center space-x-6 md:space-x-8">
+          {/* Audio Toggle - Left */}
           <button
             onClick={toggleAudio}
             disabled={!localStreamRef.current}
-            className={`p-3 md:p-4 rounded-full transition-all duration-200 ${isAudioMuted
+            className={`p-4 md:p-5 rounded-full transition-all duration-200 ${isAudioMuted
               ? 'bg-[#FB2C36] hover:bg-[#E02329] text-white shadow-lg'
-              : 'bg-white hover:bg-gray-50 text-[#FB2C36] border-2 border-gray-200 hover:border-[#FB2C36]'
+              : 'bg-gray-100 hover:bg-gray-200 text-gray-700 border-2 border-gray-300'
               } disabled:opacity-50 disabled:cursor-not-allowed`}
             title={isAudioMuted ? 'Unmute microphone' : 'Mute microphone'}
           >
-            <svg className="w-5 h-5 md:w-6 md:h-6" fill="currentColor" viewBox="0 0 20 20">
+            <svg className="w-6 h-6 md:w-7 md:h-7" fill="currentColor" viewBox="0 0 20 20">
               {isAudioMuted ? (
                 <path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM12.293 7.293a1 1 0 011.414 0L15 8.586l1.293-1.293a1 1 0 111.414 1.414L16.414 10l1.293 1.293a1 1 0 01-1.414 1.414L15 11.414l-1.293 1.293a1 1 0 01-1.414-1.414L13.586 10l-1.293-1.293a1 1 0 010-1.414z" clipRule="evenodd" />
               ) : (
@@ -4729,17 +4693,26 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
             </svg>
           </button>
 
-          {/* Video Toggle */}
+          {/* End Call - Center */}
+          <button
+            onClick={endCall}
+            className="w-16 h-16 md:w-20 md:h-20 rounded-full bg-[#FB2C36] hover:bg-[#E02329] text-white transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105 flex items-center justify-center"
+            title="End call"
+          >
+            <span className="text-white font-bold text-sm md:text-base">END</span>
+          </button>
+
+          {/* Video Toggle - Right */}
           <button
             onClick={toggleVideo}
             disabled={!localStreamRef.current}
-            className={`p-3 md:p-4 rounded-full transition-all duration-200 ${isVideoDisabled
+            className={`p-4 md:p-5 rounded-full transition-all duration-200 ${isVideoDisabled
               ? 'bg-[#FB2C36] hover:bg-[#E02329] text-white shadow-lg'
-              : 'bg-white hover:bg-gray-50 text-[#FB2C36] border-2 border-gray-200 hover:border-[#FB2C36]'
+              : 'bg-gray-100 hover:bg-gray-200 text-gray-700 border-2 border-gray-300'
               } disabled:opacity-50 disabled:cursor-not-allowed`}
             title={isVideoDisabled ? 'Enable camera' : 'Disable camera'}
           >
-            <svg className="w-5 h-5 md:w-6 md:h-6" fill="currentColor" viewBox="0 0 24 24">
+            <svg className="w-6 h-6 md:w-7 md:h-7" fill="currentColor" viewBox="0 0 24 24">
               {isVideoDisabled ? (
                 // Camera off icon - crossed out camera
                 <path d="M2.81 2.81a.996.996 0 0 0-1.41 0C1.01 3.2 1.01 3.83 1.4 4.22L2.81 5.63C2.3 6.27 2 7.09 2 8v8c0 1.1.9 2 2 2h12c.9 0 1.64-.35 2.22-.91l1.58 1.58c.39.39 1.02.39 1.41 0 .39-.39.39-1.02 0-1.41L2.81 2.81zM4 16V8c0-.55.45-1 1-1h.78l2 2H6v4c0 .55.45 1 1 1h8v-.78l2 2H4zm16-7.5c0-.83-.67-1.5-1.5-1.5S17 7.67 17 8.5v7c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5v-7zM9.5 6L8 4.5 9.5 3h5L16 4.5 14.5 6h-5z" />
@@ -4749,65 +4722,9 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
               )}
             </svg>
           </button>
-
-          {/* End Call - Most Prominent */}
-          <button
-            onClick={endCall}
-            className="p-4 md:p-5 rounded-full bg-[#FB2C36] hover:bg-[#E02329] text-white transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105"
-            title="End call"
-          >
-            <svg className="w-6 h-6 md:w-7 md:h-7" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
-            </svg>
-          </button>
-
-          {/* Skip User */}
-          <button
-            onClick={skipUser}
-            className="p-3 md:p-4 rounded-full bg-gray-600 hover:bg-gray-700 text-white transition-all duration-200 shadow-md hover:shadow-lg"
-            title="Skip to next user"
-          >
-            <svg className="w-5 h-5 md:w-6 md:h-6" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M12.293 5.293a1 1 0 011.414 0l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-2.293-2.293a1 1 0 010-1.414z" clipRule="evenodd" />
-            </svg>
-          </button>
-
-          {/* Report User */}
-          <button
-            onClick={reportUser}
-            className="p-3 md:p-4 rounded-full bg-orange-500 hover:bg-orange-600 text-white transition-all duration-200 shadow-md hover:shadow-lg"
-            title="Report user"
-          >
-            <svg className="w-5 h-5 md:w-6 md:h-6" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-            </svg>
-          </button>
-
-          {/* Performance Dashboard (Requirements: 10.4, 10.5) */}
-          <button
-            onClick={() => setShowPerformanceDashboard(true)}
-            className={`p-3 rounded-full transition-colors ${
-              performanceMonitoringActive 
-                ? 'bg-green-600 hover:bg-green-700 text-white' 
-                : 'bg-gray-600 hover:bg-gray-700 text-white'
-            }`}
-            title="Performance Dashboard"
-          >
-            <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
-              <path d="M2 10a8 8 0 018-8v8h8a8 8 0 11-16 0z" />
-              <path d="M12 2.252A8.014 8.014 0 0117.748 8H12V2.252z" />
-            </svg>
-          </button>
         </div>
       </div>
     </div>
-
-    {/* Performance Dashboard (Requirements: 10.4, 10.5) */}
-    <PerformanceDashboard
-      isVisible={showPerformanceDashboard}
-      onClose={() => setShowPerformanceDashboard(false)}
-      sessionId={`${roomId}-${partnerId}`}
-    />
     </>
   );
 }
