@@ -125,6 +125,10 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
   // SDP Safety: Prevent race conditions in offer/answer negotiation
   const [isOfferInProgress, setIsOfferInProgress] = useState(false);
   const offerLockRef = useRef(false);
+  
+  // Negotiation Controller: Ensure only ONE negotiation at a time
+  const negotiationLockRef = useRef(false);
+  const [isNegotiationInProgress, setIsNegotiationInProgress] = useState(false);
 
   // Performance monitoring effect for development alerts
   useEffect(() => {
@@ -145,6 +149,101 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       clearInterval(monitoringInterval);
     };
   }, [performanceMetrics.initializationStartTime, networkOptimized]);
+
+  /**
+   * CRITICAL: Single Negotiation Controller
+   * Ensures only ONE offer/answer negotiation happens at a time
+   * Prevents SDP race conditions and "SDP does not match" errors
+   */
+  const createOfferSafely = useCallback(async () => {
+    // 1️⃣ Enforce Strict SDP Order - Check negotiation lock
+    if (negotiationLockRef.current || isNegotiationInProgress) {
+      console.log('🔒 NEGOTIATION: Blocked - negotiation already in progress');
+      return false;
+    }
+
+    if (!peerConnectionRef.current) {
+      console.log('❌ NEGOTIATION: No peer connection available');
+      return false;
+    }
+
+    // 2️⃣ Add Signaling State Guards - Strict state validation
+    const signalingState = peerConnectionRef.current.signalingState;
+    if (signalingState !== 'stable') {
+      console.log(`🔒 NEGOTIATION: Blocked - signaling state: ${signalingState} (must be stable)`);
+      return false;
+    }
+
+    // 3️⃣ Prevent Parallel SDP Creation - Acquire negotiation lock
+    negotiationLockRef.current = true;
+    setIsNegotiationInProgress(true);
+    
+    try {
+      console.log('🚀 NEGOTIATION: Starting single offer creation (SDP-safe)');
+
+      // Validate media tracks are attached
+      const senders = peerConnectionRef.current.getSenders();
+      const activeSenders = senders.filter(sender => sender.track);
+      
+      if (activeSenders.length === 0) {
+        console.error('❌ NEGOTIATION: No media tracks attached');
+        return false;
+      }
+
+      // Double-check signaling state hasn't changed
+      if (peerConnectionRef.current.signalingState !== 'stable') {
+        console.log('🔒 NEGOTIATION: Signaling state changed during setup, aborting');
+        return false;
+      }
+
+      // Create offer (protected method)
+      const offerPromise = protectedCreateOffer(peerConnectionRef.current, {
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: true,
+        iceRestart: false
+      });
+
+      if (!offerPromise) {
+        console.error('❌ NEGOTIATION: createOffer() blocked');
+        return false;
+      }
+
+      const offer = await offerPromise;
+      console.log('✅ NEGOTIATION: Offer created successfully');
+
+      // Final signaling state check before setLocalDescription
+      if (peerConnectionRef.current.signalingState !== 'stable') {
+        console.log('🔒 NEGOTIATION: Signaling state changed after offer creation, aborting');
+        return false;
+      }
+
+      // Set local description (protected method)
+      const setLocalPromise = protectedSetLocalDescription(peerConnectionRef.current, offer);
+      
+      if (!setLocalPromise) {
+        console.error('❌ NEGOTIATION: setLocalDescription() blocked');
+        return false;
+      }
+
+      await setLocalPromise;
+      console.log('✅ NEGOTIATION: Local description set successfully');
+
+      // Send offer to partner
+      socket.emit('offer', offer);
+      console.log('✅ NEGOTIATION: Offer sent to partner');
+
+      return true;
+
+    } catch (error) {
+      console.error('❌ NEGOTIATION: Failed to create offer:', error);
+      return false;
+    } finally {
+      // Always release negotiation lock
+      negotiationLockRef.current = false;
+      setIsNegotiationInProgress(false);
+      console.log('🔓 NEGOTIATION: Lock released');
+    }
+  }, [socket, isNegotiationInProgress]);
   // Session timer effect
   useEffect(() => {
     let interval: NodeJS.Timeout | null = null;
@@ -2089,32 +2188,15 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
 
       // Begin signaling immediately - sequencer ensures all prerequisites are met (Requirements: 3.3)
       if (shouldInitiate) {
-        console.log('🚀 CONNECTION: This client will initiate - creating offer with optimized sequencer');
+        console.log('🚀 CONNECTION: This client will initiate - using single negotiation controller');
         
-        // Use sequencer's validated offer creation (Requirements: 3.1, 3.5)
-        if (sequencer.isReadyForOfferCreation()) {
-          try {
-            const offer = await sequencer.createValidatedOffer();
-            
-            // Set local description using protected method
-            const setLocalPromise = protectedSetLocalDescription(peerConnectionRef.current!, offer);
-            if (setLocalPromise) {
-              await setLocalPromise;
-              console.log('📨 CONNECTION: Local description set with optimized offer');
-              
-              // Send offer immediately (Requirements: 3.3 - immediate ICE gathering)
-              socket.emit('offer', offer);
-              console.log('✅ CONNECTION: Optimized offer sent successfully');
-            } else {
-              console.error('❌ CONNECTION: setLocalDescription() blocked - connection already established');
-            }
-          } catch (offerError) {
-            console.error('❌ CONNECTION: Failed to create optimized offer:', offerError);
-            throw offerError;
-          }
-        } else {
-          console.error('❌ CONNECTION: Sequencer not ready for offer creation');
-          throw new Error('Sequencer not ready for offer creation');
+        // CRITICAL FIX: Use single negotiation controller instead of duplicate offer creation
+        // This prevents the SDP race condition that causes "SDP does not match" errors
+        const offerSuccess = await createOfferSafely();
+        
+        if (!offerSuccess) {
+          console.error('❌ CONNECTION: Failed to create offer through negotiation controller');
+          throw new Error('Failed to create offer through negotiation controller');
         }
       } else {
         console.log('⏳ CONNECTION: This client will wait for offer from partner');
@@ -2560,137 +2642,31 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
   };
 
   const createOffer = async () => {
-    if (!peerConnectionRef.current) {
-      console.log('❌ Cannot create offer: peer connection not available');
-      return;
-    }
-
-    // SDP SAFETY: Check if offer is already in progress or signaling state is not stable
-    if (offerLockRef.current || isOfferInProgress) {
-      console.log('⚠️ SDP SAFETY: Offer already in progress, skipping to prevent race condition');
-      return;
-    }
-
-    if (peerConnectionRef.current.signalingState !== 'stable') {
-      console.log(`⚠️ SDP SAFETY: Cannot create offer in signaling state: ${peerConnectionRef.current.signalingState}`);
-      return;
-    }
-
-    // Requirements: 3.1, 3.5 - Validate that media tracks are attached before createOffer()
-    const senders = peerConnectionRef.current.getSenders();
-    const activeSenders = senders.filter(sender => sender.track);
+    // Redirect all offer creation through the single negotiation controller
+    const success = await createOfferSafely();
     
-    if (activeSenders.length === 0) {
-      console.error('❌ Cannot create offer: no media tracks attached to peer connection');
-      console.error('❌ VIOLATION: Requirements 3.1, 3.5 - Media tracks must be attached before createOffer()');
-      return;
-    }
-    
-    console.log(`✅ VALIDATION: ${activeSenders.length} media tracks verified attached before createOffer()`);
-
-    // SDP SAFETY: Set offer lock to prevent concurrent offers
-    offerLockRef.current = true;
-    setIsOfferInProgress(true);
-
-    try {
-      console.log('📨 SIGNALING: Creating WebRTC offer with validated media tracks (SDP-safe)');
+    if (!success) {
+      console.log('⚠️ NEGOTIATION: Offer creation failed, will retry if appropriate');
       
-      // Double-check signaling state hasn't changed
-      if (peerConnectionRef.current.signalingState !== 'stable') {
-        console.log('⚠️ SDP SAFETY: Signaling state changed during offer creation, aborting');
-        return;
-      }
+      // Only retry if we're not in a negotiation and conditions are safe
+      if (!negotiationLockRef.current && 
+          !isNegotiationInProgress && 
+          peerConnectionRef.current?.signalingState === 'stable') {
+        
+        const retryDelay = calculateExponentialBackoffDelay(1, 2000, 8000);
+        const retryTimeout = registerTimeout(() => {
+          if (peerConnectionRef.current?.signalingState === 'stable' && 
+              !negotiationLockRef.current && 
+              !isNegotiationInProgress) {
+            console.log('🔄 NEGOTIATION: Retrying offer creation');
+            createOfferSafely();
+          }
+        }, retryDelay, 'Safe offer creation retry');
 
-      // Use protected createOffer method
-      // Requirements: 3.4 - Block connection modification methods except getStats()
-      const offerPromise = protectedCreateOffer(peerConnectionRef.current, {
-        offerToReceiveAudio: true,
-        offerToReceiveVideo: true,
-        iceRestart: false // Don't restart ICE unless necessary
-      });
-
-      if (!offerPromise) {
-        console.error('❌ createOffer() blocked - connection is already established');
-        return;
-      }
-
-      const offer = await offerPromise;
-      console.log('📨 SIGNALING: Offer created successfully with all media tracks attached');
-
-      // SDP SAFETY: Verify signaling state is still correct before setting local description
-      if (peerConnectionRef.current.signalingState !== 'stable') {
-        console.log('⚠️ SDP SAFETY: Signaling state changed after offer creation, aborting setLocalDescription');
-        return;
-      }
-
-      console.log('📨 SIGNALING: Setting local description (SDP-safe)');
-
-      // Use protected setLocalDescription method
-      // Requirements: 3.4 - Block connection modification methods except getStats()
-      const setLocalPromise = protectedSetLocalDescription(peerConnectionRef.current, offer);
-
-      if (!setLocalPromise) {
-        console.error('❌ setLocalDescription() blocked - connection is already established');
-        return;
-      }
-
-      await setLocalPromise;
-      console.log('📨 SIGNALING: Local description set successfully');
-
-      // Requirements: 3.3 - ICE gathering begins immediately after track attachment
-      // Wait a moment for ICE gathering to start
-      await new Promise(resolve => {
-        const iceGatheringDelay = registerTimeout(() => resolve(undefined), 500, 'ICE gathering start delay');
-        if (!iceGatheringDelay) {
-          // If timeout is blocked, resolve immediately
-          resolve(undefined);
+        if (!retryTimeout) {
+          console.log('⏭️ NEGOTIATION: Retry timeout blocked');
         }
-      });
-
-      console.log('📤 SIGNALING: Sending offer to partner');
-      socket.emit('offer', offer);
-
-      console.log('✅ SIGNALING: Offer sent successfully (SDP-safe)');
-
-      // Set a timeout for receiving an answer
-      const answerTimeout = registerTimeout(() => {
-        if (peerConnectionRef.current &&
-          peerConnectionRef.current.signalingState === 'have-local-offer' &&
-          connectionState !== 'connected') {
-          console.log('⏰ No answer received within 10s, may need to retry');
-          // Don't automatically retry here, let the connection timeout handle it
-        }
-      }, 10000, 'Answer reception timeout');
-
-      if (!answerTimeout) {
-        console.log('⏭️ Answer timeout blocked - connection already established');
       }
-
-    } catch (error) {
-      console.error('❌ Error creating offer:', error);
-      onError('Failed to create connection offer. Retrying...');
-
-      // Retry after exponential backoff delay (Requirements 4.2)
-      const retryDelay = calculateExponentialBackoffDelay(1, 2000, 8000); // Start with 2s, max 8s for offer retries
-      const retryTimeout = registerTimeout(() => {
-        // SDP SAFETY: Only retry if conditions are still safe
-        if (peerConnectionRef.current && 
-            peerConnectionRef.current.signalingState === 'stable' && 
-            !offerLockRef.current && 
-            !isOfferInProgress) {
-          console.log('🔄 Retrying offer creation (SDP-safe)...');
-          createOffer();
-        }
-      }, retryDelay, 'Offer creation retry timeout');
-
-      if (!retryTimeout) {
-        console.log('⏭️ Offer retry timeout blocked - connection already established');
-      }
-    } finally {
-      // SDP SAFETY: Always release the offer lock
-      offerLockRef.current = false;
-      setIsOfferInProgress(false);
-      console.log('🔓 SDP SAFETY: Offer lock released');
     }
   };
 
@@ -2700,9 +2676,24 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       return;
     }
 
-    try {
-      console.log('📩 SIGNALING: Received offer from partner');
+    // 🔒 STRICT SIGNALING STATE GUARDS - Prevent SDP race conditions
+    const currentSignalingState = peerConnectionRef.current.signalingState;
+    console.log(`📩 SIGNALING: Received offer from partner (current state: ${currentSignalingState})`);
 
+    // 1️⃣ Block offer handling during active negotiation
+    if (negotiationLockRef.current || isNegotiationInProgress) {
+      console.log('🔒 SDP SAFETY: Blocking offer handling - negotiation in progress');
+      return;
+    }
+
+    // 2️⃣ Validate signaling state before processing
+    const validStatesForOffer = ['stable', 'have-remote-offer'];
+    if (!validStatesForOffer.includes(currentSignalingState)) {
+      console.log(`🔒 SDP SAFETY: Blocking offer - invalid signaling state: ${currentSignalingState}`);
+      return;
+    }
+
+    try {
       // SDP SAFETY: Check if we're in the middle of creating an offer
       if (offerLockRef.current || isOfferInProgress) {
         console.log('⚠️ SDP SAFETY: Received offer while creating local offer - handling collision safely');
@@ -2725,7 +2716,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         }
       }
 
-      // Check signaling state
+      // Check signaling state for offer collision handling
       if (peerConnectionRef.current.signalingState === 'have-local-offer') {
         console.log('⚠️ Received offer while we have local offer - handling collision');
         // Handle offer collision - the one with lower user ID should back off
@@ -2771,6 +2762,13 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         }
       }
 
+      // 3️⃣ Final signaling state validation before setRemoteDescription
+      if (peerConnectionRef.current.signalingState !== 'stable' && 
+          peerConnectionRef.current.signalingState !== 'have-remote-offer') {
+        console.log(`🔒 SDP SAFETY: Aborting offer handling - signaling state changed to: ${peerConnectionRef.current.signalingState}`);
+        return;
+      }
+
       // Use protected setRemoteDescription method
       // Requirements: 3.4 - Block connection modification methods except getStats()
       const setRemotePromise = protectedSetRemoteDescription(peerConnectionRef.current, offer);
@@ -2782,6 +2780,12 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
 
       await setRemotePromise;
       console.log('📩 SIGNALING: Remote description set');
+
+      // 4️⃣ Validate signaling state after setRemoteDescription
+      if (peerConnectionRef.current.signalingState !== 'have-remote-offer') {
+        console.log(`🔒 SDP SAFETY: Unexpected signaling state after setRemoteDescription: ${peerConnectionRef.current.signalingState}`);
+        return;
+      }
 
       console.log('📨 SIGNALING: Creating answer');
 
@@ -2800,6 +2804,12 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       const answer = await answerPromise;
       console.log('📨 SIGNALING: Answer created');
 
+      // 5️⃣ Final signaling state check before setLocalDescription
+      if (peerConnectionRef.current.signalingState !== 'have-remote-offer') {
+        console.log(`🔒 SDP SAFETY: Signaling state changed before setLocalDescription: ${peerConnectionRef.current.signalingState}`);
+        return;
+      }
+
       console.log('📨 SIGNALING: Setting local description with answer');
 
       // Use protected setLocalDescription method
@@ -2813,6 +2823,14 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
 
       await setLocalAnswerPromise;
       console.log('📨 SIGNALING: Local description set with answer');
+
+      // 6️⃣ Verify final signaling state is stable (after answer is set)
+      const finalSignalingState = peerConnectionRef.current.signalingState as RTCSignalingState;
+      if (finalSignalingState !== 'stable') {
+        console.log(`⚠️ SDP SAFETY: Unexpected final signaling state: ${finalSignalingState} (expected: stable)`);
+      } else {
+        console.log('✅ SDP SAFETY: Signaling state is stable after answer processing');
+      }
 
       console.log('📤 SIGNALING: Sending answer to partner');
       socket.emit('answer', answer);
@@ -2841,7 +2859,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         console.log('⏭️ Offer handling retry timeout blocked - connection already established');
       }
     }
-  }, [socket, onError, partnerId]);
+  }, [socket, onError, partnerId, isNegotiationInProgress]);
 
   const handleReceiveAnswer = useCallback(async (answer: RTCSessionDescriptionInit) => {
     if (!peerConnectionRef.current) {
@@ -2962,10 +2980,37 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
   const cleanup = () => {
     console.log('🧹 CLEANUP: Starting cleanup process');
     
+    // 4️⃣ CRITICAL: Prevent cleanup during active negotiation to avoid SDP race conditions
+    if (negotiationLockRef.current || isNegotiationInProgress) {
+      console.log('🔒 CLEANUP: Deferring cleanup - negotiation in progress');
+      
+      // Schedule cleanup after negotiation completes
+      const cleanupRetryTimeout = setTimeout(() => {
+        if (!negotiationLockRef.current && !isNegotiationInProgress) {
+          console.log('🧹 CLEANUP: Retrying cleanup after negotiation completed');
+          cleanup();
+        } else {
+          console.log('🔒 CLEANUP: Negotiation still in progress, forcing cleanup');
+          // Force cleanup after reasonable timeout to prevent deadlock
+          performCleanup();
+        }
+      }, 1000); // 1 second grace period for negotiation to complete
+      
+      return;
+    }
+    
+    performCleanup();
+  };
+
+  const performCleanup = () => {
     // SDP SAFETY: Reset offer lock during cleanup
     offerLockRef.current = false;
     setIsOfferInProgress(false);
-    console.log('🔓 SDP SAFETY: Offer lock reset during cleanup');
+    
+    // NEGOTIATION SAFETY: Reset negotiation lock during cleanup
+    negotiationLockRef.current = false;
+    setIsNegotiationInProgress(false);
+    console.log('🔓 SDP SAFETY: All negotiation locks reset during cleanup');
     
     // Complete performance monitoring (Requirements: 10.1, 10.4)
     if (performanceMonitoringActive && peerConnectionRef.current) {
