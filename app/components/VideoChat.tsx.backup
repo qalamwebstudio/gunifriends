@@ -120,7 +120,10 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
   // WebRTC Performance Monitoring Integration (Requirements: 10.1, 10.2, 10.3, 10.4, 10.5)
   const [performanceMonitoringActive, setPerformanceMonitoringActive] = useState(false);
   const [connectionQuality, setConnectionQuality] = useState<'good' | 'fair' | 'poor'>('good');
+  const [performanceAlerts, setPerformanceAlerts] = useState<PerformanceAlert[]>([]);
+  const [realTimeMetrics, setRealTimeMetrics] = useState<RealTimeMetrics | null>(null);
   const [showPerformanceDashboard, setShowPerformanceDashboard] = useState(false);
+  const performanceHooks = usePerformanceMonitoring();
 
   // Performance monitoring effect for development alerts
   useEffect(() => {
@@ -141,6 +144,57 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       clearInterval(monitoringInterval);
     };
   }, [performanceMetrics.initializationStartTime, networkOptimized]);
+
+<<<<<<< HEAD
+  // WebRTC Performance Monitoring Integration Effect (Requirements: 10.1, 10.4)
+  useEffect(() => {
+    // Setup performance alert handling
+    const handlePerformanceAlert = (alert: PerformanceAlert) => {
+      console.log(`📊 Performance Alert: [${alert.severity}] ${alert.message}`);
+      setPerformanceAlerts(prev => [alert, ...prev.slice(0, 9)]); // Keep last 10 alerts
+      
+      // Handle critical alerts
+      if (alert.severity === 'critical') {
+        console.warn('🚨 Critical performance issue detected:', alert.message);
+        if (alert.type === 'connection-timeout') {
+          // Trigger connection recovery for critical timeouts
+          if (connectionState === 'connecting' && !isConnectionEstablished) {
+            console.log('🚨 Triggering connection recovery due to critical performance alert');
+            handleInitialConnectionTimeout();
+          }
+        }
+      }
+    };
+
+    // Setup real-time metrics monitoring
+    const handleMetricsUpdate = (metrics: RealTimeMetrics) => {
+      setRealTimeMetrics(metrics);
+      
+      // Update connection quality based on real-time metrics
+      if (metrics.connectionQuality !== connectionQuality) {
+        setConnectionQuality(metrics.connectionQuality === 'excellent' || metrics.connectionQuality === 'good' ? 'good' :
+                           metrics.connectionQuality === 'fair' ? 'fair' : 'poor');
+      }
+      
+      // Log performance degradation
+      if (metrics.trends.overallTrend === 'degrading') {
+        console.warn('📊 Performance degradation detected:', {
+          latency: `${metrics.currentLatency.toFixed(0)}ms`,
+          packetLoss: `${(metrics.currentPacketLoss * 100).toFixed(1)}%`,
+          quality: metrics.connectionQuality
+        });
+      }
+    };
+
+    // Register performance monitoring callbacks
+    onPerformanceAlert(handlePerformanceAlert);
+    onMetricsUpdate(handleMetricsUpdate);
+
+    return () => {
+      // Cleanup is handled automatically by the monitoring system
+    };
+  }, [connectionState, isConnectionEstablished, connectionQuality]);
+=======
   // Session timer effect
   useEffect(() => {
     let interval: NodeJS.Timeout | null = null;
@@ -173,6 +227,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     const secs = seconds % 60;
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
+>>>>>>> deccea0f88596ac44bfcb534fc53b6404b8aaac6
 
   // Enhanced WebRTC network traversal state - FROZEN after connection
   const [networkType, setNetworkType] = useState<'open' | 'moderate' | 'restrictive'>('open');
@@ -209,21 +264,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
   };
 
   // WebRTC configuration with STUN/TURN servers for NAT traversal (Requirements: 10.3)
-  const rtcConfiguration = getWebRTCConfiguration();
-
-  // Helper function to replace missing testWebRTCConnectivity
-  const testWebRTCConnectivity = () => {
-    return Promise.resolve({
-      networkType: 'open',
-      hasInternet: true,
-      hasSTUN: true,
-      hasTURN: false,
-      stunServers: [],
-      turnServers: [],
-      latency: 0,
-      fallbackUsed: true
-    });
-  };
+  const rtcConfiguration = getPerformanceOptimizedConfig();
 
   // Helper function to freeze network detection after successful connection
   const freezeNetworkDetection = useCallback(() => {
@@ -477,6 +518,28 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     const coordinateParallelStreams = async () => {
       try {
         console.log('🚀 COORDINATION: Starting parallel stream coordination');
+<<<<<<< HEAD
+        
+        // Start performance monitoring (Requirements: 10.1)
+        const sessionId = `${roomId}-${Date.now()}`;
+        const userId = partnerId; // Use partner ID as user identifier
+        
+        console.log('📊 Initializing WebRTC performance monitoring');
+        performanceHooks.initializeMonitoring(sessionId, userId, 1, {
+          onAlert: (alert) => {
+            console.log(`📊 Performance Alert: [${alert.severity}] ${alert.message}`);
+            setPerformanceAlerts(prev => [alert, ...prev.slice(0, 9)]);
+          },
+          onStatsUpdate: (stats) => {
+            console.log(`📊 Performance Stats: ${(stats.successRate * 100).toFixed(1)}% success rate, ${stats.averageConnectionTime.toFixed(0)}ms avg`);
+          }
+        });
+        
+        setPerformanceMonitoringActive(true);
+        
+=======
+
+>>>>>>> deccea0f88596ac44bfcb534fc53b6404b8aaac6
         // Start performance monitoring (Requirements: 1.2)
         startPerformanceMonitoring();
 
@@ -1167,13 +1230,17 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       // Start media access immediately - no waiting
       console.log('🎥 IMMEDIATE: Requesting camera access');
       const stream = await getMediaStreamWithFallback();
+<<<<<<< HEAD
       
       // Record media ready milestone (Requirements: 10.1)
       if (performanceMonitoringActive) {
+        performanceHooks.recordMilestone.mediaReady(stream);
         console.log('📊 Recorded media ready milestone');
       }
       
+=======
 
+>>>>>>> deccea0f88596ac44bfcb534fc53b6404b8aaac6
       // Attach to video element immediately
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream;
@@ -1324,6 +1391,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
   // Eliminates NAT type detection, bandwidth tests, and pre-connection quality checks
   // Connection flow now starts immediately after media readiness
   const initializeBackgroundOptimization = async (): Promise<void> => {
+<<<<<<< HEAD
     console.log('⏭️ REMOVED: Background network optimization disabled');
     console.log('🚀 Connection establishment starts immediately after media readiness');
     console.log('🔄 Using TURN-first ICE strategy instead of network probing');
@@ -1334,6 +1402,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     // No network detection, STUN/TURN probing, or quality checks
     // Connection will rely on TURN-first ICE configuration for reliability
     console.log('✅ REMOVED: Network probing eliminated - connection ready');
+=======
     // Start network detection without blocking UI or connection
     console.log('🔍 BACKGROUND: Starting background optimization stream');
 
@@ -1461,6 +1530,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         networkOnline: navigator.onLine
       });
     }
+>>>>>>> deccea0f88596ac44bfcb534fc53b6404b8aaac6
   };
 
   // Helper function to apply network optimizations gracefully (partial application)
@@ -1842,14 +1912,24 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
   // Immediate UI Stream with coordination support and execution order enforcement
   const initializeImmediateUIStream = async (abortSignal: AbortSignal): Promise<MediaStream | null> => {
     try {
+<<<<<<< HEAD
+      console.log('🎥 IMMEDIATE: Starting optimized immediate UI stream with media-first approach');
+      
+=======
       console.log('🎥 IMMEDIATE: Starting coordinated immediate UI stream with execution order enforcement');
 
+>>>>>>> deccea0f88596ac44bfcb534fc53b6404b8aaac6
       if (abortSignal.aborted) {
         console.log('🎥 IMMEDIATE: Stream aborted before start');
         return null;
       }
+<<<<<<< HEAD
       
+      // Step 1: Media Access (must be first - Requirements 3.2)
+=======
+
       // Step 1: Media Access (must be first)
+>>>>>>> deccea0f88596ac44bfcb534fc53b6404b8aaac6
       updateExecutionOrder('mediaAccess', 'started');
       validateExecutionOrder('mediaAccess');
 
@@ -1869,6 +1949,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         stream?.getTracks().forEach(track => track.stop());
         return null;
       }
+<<<<<<< HEAD
       
       // Validate media stream before proceeding (Requirements 3.2)
       const videoTracks = stream.getVideoTracks();
@@ -1890,14 +1971,32 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       
       updateExecutionOrder('mediaAccess', 'completed');
       console.log('✅ IMMEDIATE: Media access completed successfully');
+      
+      // Step 2: UI Setup (Requirements 3.2 - ONLY after media is fully ready)
+=======
+
+      updateExecutionOrder('mediaAccess', 'completed');
+      console.log('✅ IMMEDIATE: Media access completed successfully');
 
       // Step 2: UI Setup (depends on media access completion)
+>>>>>>> deccea0f88596ac44bfcb534fc53b6404b8aaac6
       updateExecutionOrder('uiSetup', 'started');
       if (!validateExecutionOrder('uiSetup')) {
         console.error('❌ IMMEDIATE: UI setup execution order violation detected');
         console.error('❌ VIOLATION: Requirements 3.2 - UI initialization before media readiness');
       }
+<<<<<<< HEAD
       
+      console.log('🎥 IMMEDIATE: Setting up UI (Step 2: UI Setup - AFTER media readiness per Requirements 3.2)');
+      
+      // Attach to video element immediately - media is now guaranteed ready
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = stream;
+        console.log('✅ IMMEDIATE: Local preview displayed with validated media stream');
+        
+        // Record time-to-first-frame when local preview is displayed
+=======
+
       console.log('🎥 IMMEDIATE: Setting up UI (Step 2: UI Setup)');
 
       // Attach to video element immediately
@@ -1906,22 +2005,41 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         console.log('✅ IMMEDIATE: Local preview displayed');
 
         // Record time-to-first-frame when local preview is displayed (Requirements: 1.2)
+>>>>>>> deccea0f88596ac44bfcb534fc53b6404b8aaac6
         recordTimeToFirstFrame();
       }
 
       // Store stream reference - media is fully validated and ready
       localStreamRef.current = stream;
+<<<<<<< HEAD
+      
       // Enable UI controls immediately - media is guaranteed ready (Requirements 3.2)
       setUIReady(true);
       setMediaReady(true);
       
+      // Record time-to-UI-ready when UI controls are enabled
+=======
+
+      // Enable UI controls immediately
+      setUIReady(true);
+      setMediaReady(true);
+
       // Record time-to-UI-ready when UI controls are enabled (Requirements: 1.2)
+>>>>>>> deccea0f88596ac44bfcb534fc53b6404b8aaac6
       recordTimeToUIReady();
 
       updateExecutionOrder('uiSetup', 'completed');
+<<<<<<< HEAD
+      console.log('✅ IMMEDIATE: UI setup completed successfully AFTER media readiness validation');
+      
+      console.log('✅ IMMEDIATE: Optimized UI stream complete with proper media-first approach - videoTracks=' + stream.getVideoTracks().length + ', audioTracks=' + stream.getAudioTracks().length);
+      console.log('✅ IMMEDIATE: Requirements 3.2 satisfied - UI initialized only after media stream fully ready');
+      
+=======
       console.log('✅ IMMEDIATE: UI setup completed successfully');
 
       console.log('✅ IMMEDIATE: Coordinated UI stream complete with proper execution order - videoTracks=' + stream.getVideoTracks().length + ', audioTracks=' + stream.getAudioTracks().length);
+>>>>>>> deccea0f88596ac44bfcb534fc53b6404b8aaac6
       return stream;
     } catch (error) {
       if (abortSignal.aborted) {
@@ -1947,23 +2065,32 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
   // Connection Stream with optimized media track attachment order
   const initializeConnectionStreamCoordinated = async (localStream: MediaStream, abortSignal: AbortSignal): Promise<void> => {
     try {
+<<<<<<< HEAD
+      console.log('🔗 PARALLEL: Starting connection stream with parallel ICE gathering and signaling execution');
+      
+=======
       console.log('🔗 CONNECTION: Starting coordinated connection stream with execution order enforcement');
 
+>>>>>>> deccea0f88596ac44bfcb534fc53b6404b8aaac6
       if (abortSignal.aborted) {
         console.log('🔗 CONNECTION: Stream aborted before start');
         return;
       }
+<<<<<<< HEAD
       
       // Import the optimized connection sequencer
       const { OptimizedConnectionSequencer } = await import('../lib/optimized-connection-sequencer');
       
       // Step 3: Use optimized connection sequencer with parallel execution (Requirements: 5.1, 5.2, 5.3, 5.4, 5.5)
+=======
 
       // Step 3: Peer Connection Creation (depends on media access and UI setup completion)
+>>>>>>> deccea0f88596ac44bfcb534fc53b6404b8aaac6
       updateExecutionOrder('peerConnection', 'started');
       if (!validateExecutionOrder('peerConnection')) {
         console.error('❌ CONNECTION: Peer connection execution order violation detected');
       }
+<<<<<<< HEAD
       
       console.log('🔗 PARALLEL: Using optimized connection sequencer for parallel ICE and signaling execution');
       
@@ -1983,6 +2110,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         }
       );
       
+=======
 
       console.log('🔗 CONNECTION: Creating peer connection (Step 3: Peer Connection Creation)');
 
@@ -1994,11 +2122,13 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       // Detect blocking operations during peer connection creation
       detectBlockingOperations('Peer Connection Creation', peerConnectionStartTime, 1000); // 1s threshold
 
+>>>>>>> deccea0f88596ac44bfcb534fc53b6404b8aaac6
       if (abortSignal.aborted) {
         console.log('🔗 CONNECTION: Stream aborted after sequencer execution');
         sequencer.cleanup();
         return;
       }
+<<<<<<< HEAD
       
       // Use the optimized peer connection and stream
       peerConnectionRef.current = sequenceResult.peerConnection;
@@ -2014,6 +2144,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       // Setup additional event handlers for parallel execution monitoring
       setupPeerConnectionEventHandlers(sequenceResult.peerConnection);
       setupParallelExecutionEventHandlers(sequenceResult.peerConnection);
+=======
 
       if (!peerConnection) {
         console.error('❌ CONNECTION: Failed to create peer connection');
@@ -2047,6 +2178,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
 
       // Setup event handlers (part of peer connection setup)
       setupPeerConnectionEventHandlers(peerConnection);
+>>>>>>> deccea0f88596ac44bfcb534fc53b6404b8aaac6
 
       // Determine initiator and begin signaling immediately if ready
       const token = localStorage.getItem('authToken');
@@ -2099,9 +2231,16 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
             } else {
               console.error('❌ CONNECTION: setLocalDescription() blocked - connection already established');
             }
+<<<<<<< HEAD
           } catch (offerError) {
             console.error('❌ CONNECTION: Failed to create optimized offer:', offerError);
             throw offerError;
+=======
+          }, 100, 'Coordinated stable state check for offer creation');
+
+          if (!stableStateCheck) {
+            console.log('⏭️ Coordinated stable state check timeout blocked - connection established');
+>>>>>>> deccea0f88596ac44bfcb534fc53b6404b8aaac6
           }
         } else {
           console.error('❌ CONNECTION: Sequencer not ready for offer creation');
@@ -2113,16 +2252,19 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
 
       updateExecutionOrder('peerConnection', 'completed');
       setConnectionReady(true);
+<<<<<<< HEAD
       
       // Record time-to-connection-ready when connection is ready
       recordTimeToConnectionReady();
       
       console.log('✅ CONNECTION: Optimized connection stream complete with proper media track attachment order');
+=======
 
       // Record time-to-connection-ready when connection is ready (Requirements: 1.2)
       recordTimeToConnectionReady();
 
       console.log('✅ CONNECTION: Coordinated connection stream complete with proper execution order');
+>>>>>>> deccea0f88596ac44bfcb534fc53b6404b8aaac6
 
     } catch (error) {
       if (abortSignal.aborted) {
@@ -2145,18 +2287,22 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
   // Eliminates NAT type detection, bandwidth tests, and pre-connection quality checks
   // Connection flow now starts immediately after media readiness
   const initializeBackgroundOptimizationStream = async (abortSignal: AbortSignal): Promise<void> => {
+<<<<<<< HEAD
     console.log('⏭️ REMOVED: Coordinated background network optimization disabled');
     console.log('🚀 Connection establishment starts immediately after media readiness');
     console.log('🔄 Using TURN-first ICE strategy instead of network probing');
     
+=======
     // Start network detection without blocking UI or connection
     console.log('🔍 BACKGROUND: Starting coordinated background optimization stream with execution order enforcement');
 
+>>>>>>> deccea0f88596ac44bfcb534fc53b6404b8aaac6
     if (abortSignal.aborted) {
       console.log('🔍 BACKGROUND: Stream aborted before start');
       setNetworkOptimized(true);
       return;
     }
+<<<<<<< HEAD
     
     // Mark network optimization as complete immediately
     updateExecutionOrder('networkDetection', 'completed');
@@ -2168,6 +2314,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     // No network detection, STUN/TURN probing, or quality checks
     // Connection will rely on TURN-first ICE configuration for reliability
     console.log('✅ REMOVED: Network probing eliminated - connection ready');
+=======
 
     // Step 4: Network Detection (runs in parallel - no strict dependencies)
     updateExecutionOrder('networkDetection', 'started');
@@ -2343,6 +2490,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         console.error('❌ BACKGROUND: Network detection failure affected UI setup - this violates execution order requirements');
       }
     }
+>>>>>>> deccea0f88596ac44bfcb534fc53b6404b8aaac6
   };
 
   const initializeVideoChat = async () => {
@@ -2580,10 +2728,13 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     }
 
     try {
+<<<<<<< HEAD
       console.log('📨 SIGNALING: Creating WebRTC offer with validated media tracks');
       
+=======
       console.log('📨 SIGNALING: Creating WebRTC offer');
 
+>>>>>>> deccea0f88596ac44bfcb534fc53b6404b8aaac6
       // Use protected createOffer method
       // Requirements: 3.4 - Block connection modification methods except getStats()
       const offerPromise = protectedCreateOffer(peerConnectionRef.current, {
@@ -2916,6 +3067,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
 
   const cleanup = () => {
     console.log('🧹 CLEANUP: Starting cleanup process');
+<<<<<<< HEAD
     
     // Complete performance monitoring (Requirements: 10.1, 10.4)
     if (performanceMonitoringActive && peerConnectionRef.current) {
@@ -2923,16 +3075,23 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       const iceConnectionState = peerConnectionRef.current.iceConnectionState;
       const success = connectionState === 'connected' || iceConnectionState === 'connected';
       
-      console.log('📊 Performance monitoring completed');
+      performanceHooks.recordMilestone.complete(
+        success,
+        success ? undefined : `Connection ended: ${connectionState}/${iceConnectionState}`,
+        connectionState,
+        iceConnectionState
+      );
       
       // Stop real-time monitoring
-      console.log('📊 Performance monitoring stopped');
+      stopRealTimeMonitoring();
       
       console.log('📊 Completed performance monitoring');
       setPerformanceMonitoringActive(false);
     }
     
+=======
 
+>>>>>>> deccea0f88596ac44bfcb534fc53b6404b8aaac6
     // Send browser closing event if socket is still connected (Requirements 8.1)
     if (socket && socket.connected) {
       console.log('🧹 CLEANUP: Sending browser closing event to server');
@@ -3310,6 +3469,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         
         // Record TURN fallback milestone (Requirements: 10.1)
         if (performanceMonitoringActive) {
+          performanceHooks.recordMilestone.turnFallback('ICE restart failure - forcing TURN relay mode');
           console.log('📊 Recorded TURN fallback milestone');
         }
 
@@ -3439,6 +3599,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
 
     // Requirements 3.1, 3.5 - Add media tracks BEFORE any signaling operations
     if (localStreamRef.current) {
+<<<<<<< HEAD
       console.log('📎 RECREATION: Attaching media tracks in optimized order before signaling...');
       
       const tracks = localStreamRef.current.getTracks();
@@ -3452,6 +3613,13 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         console.log(`📎 RECREATION: Attaching video track: ${track.label}`);
         const sender = protectedAddTrack(newPeerConnection, track, localStreamRef.current);
         
+=======
+      localStreamRef.current.getTracks().forEach(track => {
+        // Use protected addTrack method
+        // Requirements: 3.4 - Block connection modification methods except getStats()
+        const sender = protectedAddTrack(newPeerConnection, track, localStreamRef.current!);
+
+>>>>>>> deccea0f88596ac44bfcb534fc53b6404b8aaac6
         if (!sender) {
           console.error('❌ RECREATION: addTrack() blocked during peer connection recreation');
           throw new Error('Failed to attach video track during recreation');
@@ -3541,7 +3709,9 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         
         // Record ICE candidate milestone (Requirements: 10.2)
         if (performanceMonitoringActive) {
-          console.log('📊 Recorded ICE candidate milestone');
+          performanceHooks.recordMilestone.iceCandidate(event.candidate);
+          
+          // Record first candidate milestone if this is the first one
           if (iceCandidateCount === 1) {
             // Use the iceCandidate method to record the first candidate
             console.log('📊 Recorded first ICE candidate milestone');
@@ -3599,6 +3769,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       if (peerConnection.iceGatheringState === 'gathering') {
         // Record ICE gathering start milestone (Requirements: 10.1)
         if (performanceMonitoringActive) {
+          performanceHooks.recordMilestone.iceGatheringStart(peerConnection.getConfiguration());
           console.log('📊 Recorded ICE gathering start milestone');
         }
         // Longer timeout for restrictive networks to allow TURN candidates
@@ -3641,6 +3812,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
           
           // Record first remote frame milestone (Requirements: 10.1)
           if (performanceMonitoringActive) {
+            performanceHooks.recordMilestone.firstRemoteFrame();
             console.log('📊 Recorded first remote frame milestone');
           }
           
@@ -3670,7 +3842,14 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
           
           // Record connection established milestone (Requirements: 10.1)
           if (performanceMonitoringActive) {
-            console.log('📊 Connection established milestone recorded');
+            performanceHooks.recordMilestone.connectionEstablished(peerConnection);
+            console.log('📊 Recorded connection established milestone');
+            
+            // Start real-time monitoring for established connection (Requirements: 10.4)
+            startRealTimeMonitoring(peerConnection, {
+              enableAutoAdaptation: true,
+              enableRealTimeAlerts: true
+            });
             console.log('📊 Started real-time connection quality monitoring');
           }
           setIsReconnecting(false);
@@ -4019,6 +4198,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
 
       // Re-add local stream using optimized sequencing (Requirements 3.1, 3.4, 3.5)
       if (localStreamRef.current && localStreamRef.current.active) {
+<<<<<<< HEAD
         console.log('📎 RECONNECTION: Re-attaching existing media stream with optimized sequencing...');
         
         // Requirements 3.4 - Validate media stream before ICE gathering
@@ -4040,6 +4220,17 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
           if (!sender) {
             console.error('❌ RECONNECTION: addTrack() blocked during reconnection');
             throw new Error('Failed to attach video track during reconnection');
+=======
+        localStreamRef.current.getTracks().forEach(track => {
+          if (track.readyState === 'live') {
+            // Use protected addTrack method
+            // Requirements: 3.4 - Block connection modification methods except getStats()
+            const sender = protectedAddTrack(newPeerConnection, track, localStreamRef.current!);
+
+            if (!sender) {
+              console.error('❌ RECONNECTION: addTrack() blocked during reconnection');
+            }
+>>>>>>> deccea0f88596ac44bfcb534fc53b6404b8aaac6
           }
         }
         
@@ -4350,8 +4541,12 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
   };
 
   return (
+<<<<<<< HEAD
     <>
       <div className="min-h-screen bg-gray-900 flex flex-col">
+=======
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+>>>>>>> deccea0f88596ac44bfcb534fc53b6404b8aaac6
       {/* Report Modal */}
       <ReportModal
         isOpen={isReportModalOpen}
