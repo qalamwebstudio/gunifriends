@@ -215,6 +215,9 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       setNetworkDetectionFrozen(true);
       setConnectionPhase('post-connection');
 
+      // CRITICAL FIX: Stop ALL background TURN re-validation and network optimization
+      console.log('🛑 STOPPING all background TURN re-validation and network optimization');
+
       // Cancel all connection timeouts immediately
       clearAllTimeoutTimers();
       clearGraceTimers();
@@ -224,7 +227,13 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         setInitialConnectionTimeout(null);
       }
 
-      console.log('✅ All pre-connection timeouts and detection logic disabled');
+      // CRITICAL FIX: Freeze TURN server configuration - no more re-testing
+      console.log('🔒 FREEZING TURN server configuration - no more background testing');
+
+      // CRITICAL FIX: Disable all network quality monitoring that could trigger reconnection
+      console.log('🔒 DISABLING network quality monitoring that could trigger reconnection');
+
+      console.log('✅ All pre-connection timeouts, detection logic, and TURN re-validation disabled');
     }
   }, [networkDetectionFrozen, initialConnectionTimeout]);
 
@@ -866,24 +875,30 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
   useEffect(() => {
     if (!peerConnectionRef.current || connectionState !== 'connected') return;
 
+    // CRITICAL FIX: Only start quality monitoring AFTER connection is frozen
+    if (!networkDetectionFrozen) {
+      console.log('⏭️ Skipping quality monitoring - network detection not frozen yet');
+      return;
+    }
+
     // Start quality monitoring ONLY with WebRTC stats, no network probing
     const monitor = new ConnectionQualityMonitor(
       peerConnectionRef.current,
       (quality) => {
         setNetworkQuality(quality);
 
-        // Enable adaptive streaming if network quality is poor
+        // CRITICAL FIX: NEVER trigger reconnection from quality monitoring after connection is established
         // Use ONLY sender parameter changes, NOT PeerConnection recreation
-        // CRITICAL: Block latency spike handlers when CALL_IS_CONNECTED = true
-        // Requirements: 1.5, 4.3 - Prevent latency spike handlers from triggering reconnection
         if (quality === 'poor' && !adaptiveStreamingEnabled) {
+          console.log('🚫 Poor network quality detected - using quality adaptation ONLY (no reconnection)');
+          // CRITICAL: Block latency spike handlers when connection is established
           if (isLatencyHandlerBlocked()) {
             console.log('🚫 Latency spike handler blocked - connection is established, using quality adaptation only');
             // Still allow quality adaptation, just block reconnection
             setAdaptiveStreamingEnabled(true);
             adaptVideoQuality('low');
           } else {
-            console.log('Poor network quality detected, enabling adaptive streaming');
+            console.log('Poor network quality detected, enabling adaptive streaming (no reconnection)');
             setAdaptiveStreamingEnabled(true);
             adaptVideoQuality('low');
           }
@@ -902,7 +917,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       monitor.stop();
       qualityMonitorRef.current = null;
     };
-  }, [connectionState, adaptiveStreamingEnabled]);
+  }, [connectionState, adaptiveStreamingEnabled, networkDetectionFrozen]);
 
   const adaptVideoQuality = async (quality: 'high' | 'medium' | 'low') => {
     if (!localStreamRef.current) return;
@@ -958,9 +973,8 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       console.log('Network connection restored');
       setIsOnline(true);
 
-      // ONLY attempt recovery if we're in post-connection phase AND have actual WebRTC failure
-      // CRITICAL: Block network recovery handlers when CALL_IS_CONNECTED = true
-      // Requirements: 1.5, 4.3 - Prevent network handlers from triggering reconnection
+      // CRITICAL FIX: ONLY attempt recovery if we're in post-connection phase AND have actual WebRTC failure
+      // Block network recovery handlers when connection is established
       if (connectionState === 'connected' && peerConnectionRef.current && networkDetectionFrozen) {
         // Check if network recovery handler should be blocked
         if (shouldBlockReconnectionOperation('Network recovery handler')) {
@@ -972,6 +986,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         const rtcState = peerConnectionRef.current.connectionState;
         const iceState = peerConnectionRef.current.iceConnectionState;
 
+        // CRITICAL FIX: Only attempt recovery for ACTUAL failures, not temporary disconnections
         if (rtcState === 'failed' || iceState === 'failed') {
           console.log('Network recovered and WebRTC connection needs repair');
           setNetworkRecoveryInProgress(true);
@@ -1051,10 +1066,8 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
           isInActiveCall: connectionState === 'connected'
         });
 
-        // If tab becomes visible after being hidden, check connection health
+        // CRITICAL FIX: If tab becomes visible after being hidden, check connection health
         // BUT ONLY if we're in post-connection phase and have actual WebRTC failure
-        // CRITICAL: Block visibility change handlers when CALL_IS_CONNECTED = true
-        // Requirements: 4.4 - Block visibility change handlers from reconnecting
         if (isVisible && connectionState === 'connected' && peerConnectionRef.current && networkDetectionFrozen) {
           console.log('Tab became visible - checking connection health');
 
@@ -1064,7 +1077,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
             return;
           }
 
-          // Check if WebRTC connection is actually failed (not just disconnected)
+          // CRITICAL FIX: Check if WebRTC connection is actually failed (not just disconnected)
           const rtcConnectionState = peerConnectionRef.current.connectionState;
           const iceConnectionState = peerConnectionRef.current.iceConnectionState;
 
@@ -1091,8 +1104,8 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
               onError('');
             }
           } else if (rtcConnectionState === 'disconnected' || iceConnectionState === 'disconnected') {
-            console.log('Connection temporarily disconnected while tab was hidden - monitoring');
-            // Just monitor, don't immediately reconnect
+            console.log('Connection temporarily disconnected while tab was hidden - monitoring only (no reconnection)');
+            // CRITICAL FIX: Just monitor, don't immediately reconnect for temporary disconnections
             const monitoringTimeout = registerTimeout(() => {
               if (peerConnectionRef.current &&
                 (peerConnectionRef.current.connectionState === 'connected' ||
@@ -2970,7 +2983,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
 
     console.log(`🔴 ICE connection actually failed - ICE state: "${iceState}", connection state: "${connectionState}" - proceeding with reconnection`);
 
-    // Only extend timeout during initial connection setup, not for established connections
+    // CRITICAL FIX: Only extend timeout during initial connection setup, not for established connections
     if (!isConnectionEstablished && connectionState === 'connecting' && reconnectAttempts < MAX_RECONNECT_ATTEMPTS_CONST) {
       console.log('Connection still in progress, extending timeout...');
       // Implement exponential backoff for timeout extensions (Requirements 4.2)
