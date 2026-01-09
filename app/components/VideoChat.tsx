@@ -122,6 +122,10 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
   const [connectionQuality, setConnectionQuality] = useState<'good' | 'fair' | 'poor'>('good');
   const [showPerformanceDashboard, setShowPerformanceDashboard] = useState(false);
 
+  // SDP Safety: Prevent race conditions in offer/answer negotiation
+  const [isOfferInProgress, setIsOfferInProgress] = useState(false);
+  const offerLockRef = useRef(false);
+
   // Performance monitoring effect for development alerts
   useEffect(() => {
     if (!performanceMetrics.initializationStartTime) return;
@@ -1292,12 +1296,17 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       if (shouldInitiate) {
         console.log('🚀 CONNECTION: This client will initiate - creating offer immediately');
         // No artificial 3-second delay
-        if (peerConnection.signalingState === 'stable') {
+        // SDP SAFETY: Only create offer if conditions are safe
+        if (peerConnection.signalingState === 'stable' && !offerLockRef.current && !isOfferInProgress) {
           createOffer();
         } else {
+          console.log('⚠️ SDP SAFETY: Skipping offer creation - unsafe conditions');
           // Wait briefly for stable state, then create offer
           const stableStateCheck = registerTimeout(() => {
-            if (peerConnectionRef.current && peerConnectionRef.current.signalingState === 'stable') {
+            if (peerConnectionRef.current && 
+                peerConnectionRef.current.signalingState === 'stable' && 
+                !offerLockRef.current && 
+                !isOfferInProgress) {
               createOffer();
             }
           }, 100, 'Stable state check for offer creation');
@@ -2556,6 +2565,17 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       return;
     }
 
+    // SDP SAFETY: Check if offer is already in progress or signaling state is not stable
+    if (offerLockRef.current || isOfferInProgress) {
+      console.log('⚠️ SDP SAFETY: Offer already in progress, skipping to prevent race condition');
+      return;
+    }
+
+    if (peerConnectionRef.current.signalingState !== 'stable') {
+      console.log(`⚠️ SDP SAFETY: Cannot create offer in signaling state: ${peerConnectionRef.current.signalingState}`);
+      return;
+    }
+
     // Requirements: 3.1, 3.5 - Validate that media tracks are attached before createOffer()
     const senders = peerConnectionRef.current.getSenders();
     const activeSenders = senders.filter(sender => sender.track);
@@ -2568,21 +2588,18 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     
     console.log(`✅ VALIDATION: ${activeSenders.length} media tracks verified attached before createOffer()`);
 
-    // Check if we're in the right state to create an offer
-    if (peerConnectionRef.current.signalingState !== 'stable') {
-      console.log(`⚠️ Cannot create offer in signaling state: ${peerConnectionRef.current.signalingState}`);
-      // Wait a bit and retry if we're in a transitional state
-      if (peerConnectionRef.current.signalingState === 'have-remote-offer') {
-        console.log('⏳ Waiting for answer to be processed before creating offer...');
-        return; // Don't create offer if we have a remote offer
-      }
-      return;
-    }
+    // SDP SAFETY: Set offer lock to prevent concurrent offers
+    offerLockRef.current = true;
+    setIsOfferInProgress(true);
 
     try {
-      console.log('📨 SIGNALING: Creating WebRTC offer with validated media tracks');
+      console.log('📨 SIGNALING: Creating WebRTC offer with validated media tracks (SDP-safe)');
       
-      console.log('📨 SIGNALING: Creating WebRTC offer');
+      // Double-check signaling state hasn't changed
+      if (peerConnectionRef.current.signalingState !== 'stable') {
+        console.log('⚠️ SDP SAFETY: Signaling state changed during offer creation, aborting');
+        return;
+      }
 
       // Use protected createOffer method
       // Requirements: 3.4 - Block connection modification methods except getStats()
@@ -2600,7 +2617,13 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       const offer = await offerPromise;
       console.log('📨 SIGNALING: Offer created successfully with all media tracks attached');
 
-      console.log('📨 SIGNALING: Setting local description');
+      // SDP SAFETY: Verify signaling state is still correct before setting local description
+      if (peerConnectionRef.current.signalingState !== 'stable') {
+        console.log('⚠️ SDP SAFETY: Signaling state changed after offer creation, aborting setLocalDescription');
+        return;
+      }
+
+      console.log('📨 SIGNALING: Setting local description (SDP-safe)');
 
       // Use protected setLocalDescription method
       // Requirements: 3.4 - Block connection modification methods except getStats()
@@ -2612,7 +2635,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       }
 
       await setLocalPromise;
-      console.log('📨 SIGNALING: Local description set');
+      console.log('📨 SIGNALING: Local description set successfully');
 
       // Requirements: 3.3 - ICE gathering begins immediately after track attachment
       // Wait a moment for ICE gathering to start
@@ -2627,7 +2650,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       console.log('📤 SIGNALING: Sending offer to partner');
       socket.emit('offer', offer);
 
-      console.log('✅ SIGNALING: Offer sent successfully');
+      console.log('✅ SIGNALING: Offer sent successfully (SDP-safe)');
 
       // Set a timeout for receiving an answer
       const answerTimeout = registerTimeout(() => {
@@ -2650,8 +2673,12 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       // Retry after exponential backoff delay (Requirements 4.2)
       const retryDelay = calculateExponentialBackoffDelay(1, 2000, 8000); // Start with 2s, max 8s for offer retries
       const retryTimeout = registerTimeout(() => {
-        if (peerConnectionRef.current && peerConnectionRef.current.signalingState === 'stable') {
-          console.log('🔄 Retrying offer creation...');
+        // SDP SAFETY: Only retry if conditions are still safe
+        if (peerConnectionRef.current && 
+            peerConnectionRef.current.signalingState === 'stable' && 
+            !offerLockRef.current && 
+            !isOfferInProgress) {
+          console.log('🔄 Retrying offer creation (SDP-safe)...');
           createOffer();
         }
       }, retryDelay, 'Offer creation retry timeout');
@@ -2659,6 +2686,11 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       if (!retryTimeout) {
         console.log('⏭️ Offer retry timeout blocked - connection already established');
       }
+    } finally {
+      // SDP SAFETY: Always release the offer lock
+      offerLockRef.current = false;
+      setIsOfferInProgress(false);
+      console.log('🔓 SDP SAFETY: Offer lock released');
     }
   };
 
@@ -2670,6 +2702,14 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
 
     try {
       console.log('📩 SIGNALING: Received offer from partner');
+
+      // SDP SAFETY: Check if we're in the middle of creating an offer
+      if (offerLockRef.current || isOfferInProgress) {
+        console.log('⚠️ SDP SAFETY: Received offer while creating local offer - handling collision safely');
+        // Reset our offer creation to handle the collision
+        offerLockRef.current = false;
+        setIsOfferInProgress(false);
+      }
 
       // Check if we already have a remote description
       if (peerConnectionRef.current.remoteDescription) {
@@ -2706,6 +2746,11 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         // If we have lower ID, we should back off and accept the offer
         if (currentUserId.localeCompare(partnerId) < 0) {
           console.log('🔄 Backing off from offer collision - accepting remote offer');
+          
+          // SDP SAFETY: Reset offer lock before rollback
+          offerLockRef.current = false;
+          setIsOfferInProgress(false);
+          
           // Reset to stable state first
           try {
             // Use protected setLocalDescription method for rollback
@@ -2916,6 +2961,11 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
 
   const cleanup = () => {
     console.log('🧹 CLEANUP: Starting cleanup process');
+    
+    // SDP SAFETY: Reset offer lock during cleanup
+    offerLockRef.current = false;
+    setIsOfferInProgress(false);
+    console.log('🔓 SDP SAFETY: Offer lock reset during cleanup');
     
     // Complete performance monitoring (Requirements: 10.1, 10.4)
     if (performanceMonitoringActive && peerConnectionRef.current) {
@@ -3333,6 +3383,18 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       // Perform proper ICE restart using createOffer with iceRestart: true
       console.log('🔄 RECONNECTION: Creating ICE restart offer');
 
+      // SDP SAFETY: Check if offer is already in progress before ICE restart
+      if (offerLockRef.current || isOfferInProgress) {
+        console.log('⚠️ SDP SAFETY: ICE restart skipped - offer already in progress');
+        return;
+      }
+
+      // SDP SAFETY: Verify signaling state is stable for ICE restart
+      if (peerConnectionRef.current.signalingState !== 'stable') {
+        console.log(`⚠️ SDP SAFETY: ICE restart skipped - signaling state: ${peerConnectionRef.current.signalingState}`);
+        return;
+      }
+
       // Use protected createOffer method for ICE restart
       // Requirements: 3.4 - Block connection modification methods except getStats()
       const offerPromise = protectedCreateOffer(peerConnectionRef.current, {
@@ -3492,7 +3554,15 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     // Create new offer with the relay-only connection (all tracks are now attached)
     if (isInitiator) {
       console.log('🚀 RECREATION: Creating offer with all tracks attached and validated');
-      await createOffer();
+      // SDP SAFETY: Only create offer if conditions are safe
+      if (peerConnectionRef.current && 
+          peerConnectionRef.current.signalingState === 'stable' && 
+          !offerLockRef.current && 
+          !isOfferInProgress) {
+        await createOffer();
+      } else {
+        console.log('⚠️ SDP SAFETY: Skipping offer creation during recreation - unsafe conditions');
+      }
     }
   };
 
@@ -3854,9 +3924,22 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       }
     };
 
-    // Handle signaling state changes
+    // Handle signaling state changes with SDP safety debugging
     peerConnection.onsignalingstatechange = () => {
-      console.log('🔄 SIGNALING STATE: ' + peerConnection.signalingState);
+      const signalingState = peerConnection.signalingState;
+      console.log('🔄 SIGNALING STATE: ' + signalingState);
+      
+      // SDP SAFETY: Log when signaling state changes during offer creation
+      if (offerLockRef.current || isOfferInProgress) {
+        console.log('⚠️ SDP SAFETY: Signaling state changed during offer creation:', signalingState);
+      }
+      
+      // SDP SAFETY: Reset offer lock if we reach a stable state unexpectedly
+      if (signalingState === 'stable' && (offerLockRef.current || isOfferInProgress)) {
+        console.log('🔓 SDP SAFETY: Resetting offer lock due to stable state');
+        offerLockRef.current = false;
+        setIsOfferInProgress(false);
+      }
     };
 
     // Handle data channel errors
@@ -4110,7 +4193,15 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
 
       // Restart the connection process
       if (isInitiator) {
-        await createOffer();
+        // SDP SAFETY: Only create offer if conditions are safe
+        if (peerConnectionRef.current && 
+            peerConnectionRef.current.signalingState === 'stable' && 
+            !offerLockRef.current && 
+            !isOfferInProgress) {
+          await createOffer();
+        } else {
+          console.log('⚠️ SDP SAFETY: Skipping offer creation during reconnection - unsafe conditions');
+        }
       }
 
       // Set timeout only for initial connection setup, not for established connection monitoring
