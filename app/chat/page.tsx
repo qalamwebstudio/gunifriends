@@ -299,10 +299,15 @@ function ChatPageContent() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-center text-white">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto"></div>
-          <p className="mt-4">Loading video chat...</p>
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="relative">
+            <div className="animate-spin rounded-full h-12 w-12 border-4 border-gray-200 border-t-[#FB2C36] mx-auto"></div>
+            <div className="absolute inset-0 animate-pulse">
+              <div className="w-12 h-12 rounded-full bg-[#FB2C36] opacity-20 mx-auto"></div>
+            </div>
+          </div>
+          <p className="mt-4 text-[#000934] font-medium">Loading video chat...</p>
         </div>
       </div>
     );
@@ -314,25 +319,25 @@ function ChatPageContent() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-center text-white max-w-md mx-auto p-6">
-          <div className="bg-red-600 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4">
-            <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 20 20">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center max-w-md mx-auto p-6">
+          <div className="bg-[#FB2C36] rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4">
+            <svg className="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
             </svg>
           </div>
-          <h2 className="text-xl font-semibold mb-2">Connection Error</h2>
-          <p className="text-gray-300 mb-6">{error}</p>
+          <h2 className="text-xl font-semibold mb-2 text-[#000934]">Connection Error</h2>
+          <p className="text-gray-600 mb-6">{error}</p>
           <div className="space-y-3">
             <button
               onClick={() => window.location.reload()}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded transition-colors"
+              className="w-full bg-[#FB2C36] hover:bg-[#E02329] text-white py-3 px-4 rounded-lg font-medium transition-colors"
             >
               Try Again
             </button>
             <button
               onClick={handleCallEnd}
-              className="w-full bg-gray-600 hover:bg-gray-700 text-white py-2 px-4 rounded transition-colors"
+              className="w-full bg-[#000934] hover:bg-[#000934]/90 text-white py-3 px-4 rounded-lg font-medium transition-colors"
             >
               Return to Home
             </button>
@@ -344,16 +349,21 @@ function ChatPageContent() {
 
   if (!socket || !partnerId || !roomId) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-center text-white max-w-md mx-auto p-6">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
-          <h2 className="text-xl font-semibold mb-2">Setting up video chat...</h2>
-          <p className="text-gray-300 mb-6">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center max-w-md mx-auto p-6">
+          <div className="relative mb-6">
+            <div className="animate-spin rounded-full h-12 w-12 border-4 border-gray-200 border-t-[#FB2C36] mx-auto"></div>
+            <div className="absolute inset-0 animate-pulse">
+              <div className="w-12 h-12 rounded-full bg-[#FB2C36] opacity-20 mx-auto"></div>
+            </div>
+          </div>
+          <h2 className="text-xl font-semibold mb-2 text-[#000934]">Setting up video chat...</h2>
+          <p className="text-gray-600 mb-6">
             {!socket ? 'Connecting to server...' : 'Waiting for match information...'}
           </p>
           <button
             onClick={handleCallEnd}
-            className="bg-gray-600 hover:bg-gray-700 text-white py-2 px-4 rounded transition-colors"
+            className="bg-[#000934] hover:bg-[#000934]/90 text-white py-3 px-6 rounded-lg font-medium transition-colors"
           >
             Cancel
           </button>
@@ -377,10 +387,15 @@ function ChatPageContent() {
 export default function ChatPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-center text-white">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto"></div>
-          <p className="mt-4">Loading video chat...</p>
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="relative">
+            <div className="animate-spin rounded-full h-12 w-12 border-4 border-gray-200 border-t-[#FB2C36] mx-auto"></div>
+            <div className="absolute inset-0 animate-pulse">
+              <div className="w-12 h-12 rounded-full bg-[#FB2C36] opacity-20 mx-auto"></div>
+            </div>
+          </div>
+          <p className="mt-4 text-[#000934] font-medium">Loading video chat...</p>
         </div>
       </div>
     }>
