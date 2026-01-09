@@ -4579,14 +4579,14 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
           ) : (
             /* Video Layout */
             <div className="px-3 md:px-0">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 md:gap-4 lg:gap-6 h-full min-h-[50vh] lg:min-h-[60vh] max-w-full">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 md:gap-4 lg:gap-6 h-full min-h-[50vh] lg:min-h-[70vh] max-w-full">
                 {/* Partner Video (Left on Desktop, Top on Mobile) */}
-                <div className="relative bg-white rounded-xl md:rounded-2xl overflow-hidden shadow-lg border border-gray-200 h-[30vh] lg:h-[45vh] w-full max-w-full">
+                <div className="relative bg-white rounded-xl md:rounded-2xl overflow-hidden shadow-lg border border-gray-200 h-[30vh] lg:h-[55vh] w-full max-w-full">
                   <video
                     ref={remoteVideoRef}
                     autoPlay
                     playsInline
-                    className="w-full h-full object-cover"
+                    className="w-full h-full"
                   />
                   <div className="absolute bottom-2 left-2 md:bottom-4 md:left-4 bg-[#FB2C36] bg-opacity-90 text-white px-2 py-1 md:px-3 md:py-1 rounded-md md:rounded-lg text-xs md:text-sm font-medium">
                     Partner
@@ -4635,13 +4635,13 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
                 </div>
 
                 {/* Your Video (Right on Desktop, Bottom on Mobile) */}
-                <div className="relative bg-white rounded-xl md:rounded-2xl overflow-hidden shadow-lg border border-gray-200 h-[30vh] lg:h-[45vh] w-full max-w-full">
+                <div className="relative bg-white rounded-xl md:rounded-2xl overflow-hidden shadow-lg border border-gray-200 h-[30vh] lg:h-[55vh] w-full max-w-full">
                   <video
                     ref={localVideoRef}
                     autoPlay
                     playsInline
                     muted
-                    className="w-full h-full object-cover scale-x-[-1]"
+                    className="w-full h-full scale-x-[-1]"
                   />
                   <div className="absolute bottom-2 left-2 md:bottom-4 md:left-4 bg-[#FB2C36] bg-opacity-90 text-white px-2 py-1 md:px-3 md:py-1 rounded-md md:rounded-lg text-xs md:text-sm font-medium">
                     You
