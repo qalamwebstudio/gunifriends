@@ -31,6 +31,7 @@ function ChatPageContent() {
   const [roomId, setRoomId] = useState<string | null>(null);
   const [isSessionRestored, setIsSessionRestored] = useState<boolean>(false);
   const [sessionRestoreAttempted, setSessionRestoreAttempted] = useState<boolean>(false);
+  const [activeUserCount, setActiveUserCount] = useState<number>(0);
 
   useEffect(() => {
     // Get match data from URL parameters (passed from home page)
@@ -176,6 +177,15 @@ function ChatPageContent() {
       } else if (partnerId && roomId) {
         console.log('Using match data from URL parameters');
       }
+
+      // Request active user count
+      newSocket.emit('get-active-user-count');
+    });
+
+    // Listen for active user count updates
+    newSocket.on('active-user-count', (count: number) => {
+      console.log('👥 Active users:', count);
+      setActiveUserCount(count);
     });
 
     newSocket.on('disconnect', () => {
@@ -380,6 +390,7 @@ function ChatPageContent() {
       onCallEnd={handleCallEnd}
       onError={handleError}
       isSessionRestored={isSessionRestored}
+      activeUserCount={activeUserCount}
     />
   );
 }

@@ -618,12 +618,6 @@ export default function Page() {
                   </div>
                 )}
 
-                {matchingStatus === 'matched' && (
-                  <div className="text-xs text-green-600 mt-2">
-                    <p>✓ Student found! Setting up video connection...</p>
-                  </div>
-                )}
-
                 {connectionStatus === 'disconnected' && (
                   <div className="text-xs text-red-600 mt-2">
                     <p>Connection lost. Please refresh the page.</p>
@@ -782,12 +776,6 @@ export default function Page() {
                   <div className="text-xs text-gray-600 mt-2">
                     <p>Looking for available students...</p>
                     <p>This usually takes less than a minute</p>
-                  </div>
-                )}
-
-                {matchingStatus === 'matched' && (
-                  <div className="text-xs text-green-600 mt-2">
-                    <p>✓ Student found! Setting up video connection...</p>
                   </div>
                 )}
 

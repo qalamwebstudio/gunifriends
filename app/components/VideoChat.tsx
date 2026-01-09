@@ -60,12 +60,13 @@ interface VideoChatProps {
   onCallEnd: () => void;
   onError: (error: string) => void;
   isSessionRestored?: boolean;
+  activeUserCount?: number;
 }
 
 type ConnectionState = 'idle' | 'matched' | 'connecting' | 'connected' | 'disconnected' | 'failed' | 'ended';
 type ConnectionPhase = 'pre-connection' | 'post-connection';
 
-export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onError, isSessionRestored = false }: VideoChatProps) {
+export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onError, isSessionRestored = false, activeUserCount = 0 }: VideoChatProps) {
   // Video element refs
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -4490,8 +4491,19 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
             />
           </div>
 
-          {/* Session Timer and Status */}
+          {/* User Count and Session Timer */}
           <div className="flex items-center space-x-2 md:space-x-4">
+            {/* User Count Display */}
+            <div className="flex items-center space-x-2">
+              <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+              {activeUserCount > 0 && (
+                <span className="text-sm text-gray-600">
+                  {activeUserCount} active users
+                </span>
+              )}
+            </div>
+
+            {/* Session Timer and Status */}
             {sessionStartTime && (
               <div className="flex items-center space-x-1 md:space-x-2">
                 <div className="w-2 h-2 bg-[#FB2C36] rounded-full animate-pulse"></div>
@@ -4567,7 +4579,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
           ) : (
             /* Video Layout */
             <div className="px-3 md:px-0">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 md:gap-4 lg:gap-6 h-full min-h-[50vh] lg:min-h-[55vh] max-w-full">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 md:gap-4 lg:gap-6 h-full min-h-[50vh] lg:min-h-[60vh] max-w-full">
                 {/* Partner Video (Left on Desktop, Top on Mobile) */}
                 <div className="relative bg-white rounded-xl md:rounded-2xl overflow-hidden shadow-lg border border-gray-200 h-[30vh] lg:h-[45vh] w-full max-w-full">
                   <video
