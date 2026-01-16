@@ -4795,7 +4795,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
               </svg>
             </button>
 
-            {/* Audio Toggle - Left */}
+            {/* Audio Toggle - Left (Microphone) */}
             <button
               onClick={toggleAudio}
               disabled={!localStreamRef.current}
@@ -4805,12 +4805,15 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
                 } disabled:opacity-50 disabled:cursor-not-allowed`}
               title={isAudioMuted ? 'Unmute microphone' : 'Mute microphone'}
             >
-              <svg className="w-6 h-6 md:w-7 md:h-7" fill="currentColor" viewBox="0 0 20 20">
+              <svg className="w-6 h-6 md:w-7 md:h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 {isAudioMuted ? (
-                  <path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM12.293 7.293a1 1 0 011.414 0L15 8.586l1.293-1.293a1 1 0 111.414 1.414L16.414 10l1.293 1.293a1 1 0 01-1.414 1.414L15 11.414l-1.293 1.293a1 1 0 01-1.414-1.414L13.586 10l-1.293-1.293a1 1 0 010-1.414z" clipRule="evenodd" />
+                  // Microphone Off Icon
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
                 ) : (
-                  <path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM15.657 6.343a1 1 0 011.414 0c.28.28.5.599.653.943a5.002 5.002 0 010 5.428 3.9 3.9 0 01-.653.943 1 1 0 01-1.414-1.414c.159-.159.296-.327.406-.506a3.002 3.002 0 000-3.472c-.11-.179-.247-.347-.406-.506a1 1 0 010-1.414z" clipRule="evenodd" />
+                  // Microphone On Icon
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
                 )}
+                {isAudioMuted && <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3l18 18" />}
               </svg>
             </button>
 
