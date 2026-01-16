@@ -26,16 +26,16 @@ export default function ReportModal({ isOpen, onClose, onSubmit, partnerInfo }: 
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!selectedCategory) {
       return;
     }
 
     setIsSubmitting(true);
-    
+
     try {
       await onSubmit(selectedCategory, description);
-      
+
       // Reset form
       setSelectedCategory('');
       setDescription('');
@@ -58,16 +58,16 @@ export default function ReportModal({ isOpen, onClose, onSubmit, partnerInfo }: 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-white bg-opacity-90 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg max-w-md w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-gray-200">
+    <div className="fixed inset-0 bg-[#00020d] bg-opacity-80 flex items-center justify-center z-50 p-4">
+      <div className="bg-gray-900 rounded-lg max-w-md w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-gray-700">
         <div className="p-6">
           {/* Header */}
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-semibold text-gray-900">Report User</h2>
+            <h2 className="text-xl font-semibold text-white">Report User</h2>
             <button
               onClick={handleClose}
               disabled={isSubmitting}
-              className="text-gray-400 hover:text-gray-600 disabled:opacity-50"
+              className="text-gray-400 hover:text-gray-200 disabled:opacity-50"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -76,7 +76,8 @@ export default function ReportModal({ isOpen, onClose, onSubmit, partnerInfo }: 
           </div>
 
           {/* Warning */}
-          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+          {/* Warning */}
+          <div className="bg-yellow-900/20 border border-yellow-900 rounded-lg p-4 mb-4">
             <div className="flex">
               <div className="flex-shrink-0">
                 <svg className="h-5 w-5 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
@@ -84,12 +85,12 @@ export default function ReportModal({ isOpen, onClose, onSubmit, partnerInfo }: 
                 </svg>
               </div>
               <div className="ml-3">
-                <h3 className="text-sm font-medium text-yellow-800">
+                <h3 className="text-sm font-medium text-yellow-200">
                   Important Notice
                 </h3>
-                <div className="mt-2 text-sm text-yellow-700">
+                <div className="mt-2 text-sm text-yellow-300">
                   <p>
-                    Submitting this report will immediately end your current video chat session. 
+                    Submitting this report will immediately end your current video chat session.
                     Please only report genuine violations of our community guidelines.
                   </p>
                 </div>
@@ -101,7 +102,7 @@ export default function ReportModal({ isOpen, onClose, onSubmit, partnerInfo }: 
           <form onSubmit={handleSubmit}>
             {/* Category Selection */}
             <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-300 mb-2">
                 Report Category *
               </label>
               <div className="space-y-2">
@@ -114,9 +115,9 @@ export default function ReportModal({ isOpen, onClose, onSubmit, partnerInfo }: 
                       checked={selectedCategory === category.value}
                       onChange={(e) => setSelectedCategory(e.target.value)}
                       disabled={isSubmitting}
-                      className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300 disabled:opacity-50"
+                      className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-600 bg-gray-700 disabled:opacity-50"
                     />
-                    <span className="ml-2 text-sm text-gray-700">{category.label}</span>
+                    <span className="ml-2 text-sm text-gray-300">{category.label}</span>
                   </label>
                 ))}
               </div>
@@ -124,7 +125,7 @@ export default function ReportModal({ isOpen, onClose, onSubmit, partnerInfo }: 
 
             {/* Description */}
             <div className="mb-6">
-              <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="description" className="block text-sm font-medium text-gray-300 mb-2">
                 Additional Details (Optional)
               </label>
               <textarea
@@ -134,7 +135,7 @@ export default function ReportModal({ isOpen, onClose, onSubmit, partnerInfo }: 
                 onChange={(e) => setDescription(e.target.value)}
                 disabled={isSubmitting}
                 placeholder="Please provide any additional context about the incident..."
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-red-500 focus:border-red-500 disabled:opacity-50 disabled:bg-gray-50"
+                className="w-full px-3 py-2 bg-gray-800 text-white border border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-red-500 focus:border-red-500 disabled:opacity-50 disabled:bg-gray-700"
                 maxLength={500}
               />
               <p className="mt-1 text-xs text-gray-500">
@@ -144,12 +145,12 @@ export default function ReportModal({ isOpen, onClose, onSubmit, partnerInfo }: 
 
             {/* Session Info */}
             {partnerInfo && (
-              <div className="mb-6 p-3 bg-gray-50 rounded-lg">
-                <h4 className="text-sm font-medium text-gray-700 mb-1">Session Information</h4>
-                <p className="text-xs text-gray-600">
+              <div className="mb-6 p-3 bg-gray-800 rounded-lg">
+                <h4 className="text-sm font-medium text-gray-200 mb-1">Session Information</h4>
+                <p className="text-xs text-gray-400">
                   Room ID: {partnerInfo.roomId.slice(0, 8)}...
                 </p>
-                <p className="text-xs text-gray-600">
+                <p className="text-xs text-gray-400">
                   Timestamp: {new Date().toLocaleString()}
                 </p>
               </div>
@@ -161,7 +162,7 @@ export default function ReportModal({ isOpen, onClose, onSubmit, partnerInfo }: 
                 type="button"
                 onClick={handleClose}
                 disabled={isSubmitting}
-                className="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex-1 bg-gray-700 text-white py-2 px-4 rounded-md hover:bg-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Cancel
               </button>
@@ -183,9 +184,9 @@ export default function ReportModal({ isOpen, onClose, onSubmit, partnerInfo }: 
           </form>
 
           {/* Guidelines */}
-          <div className="mt-6 pt-4 border-t border-gray-200">
-            <h4 className="text-sm font-medium text-gray-700 mb-2">Community Guidelines</h4>
-            <ul className="text-xs text-gray-600 space-y-1">
+          <div className="mt-6 pt-4 border-t border-gray-700">
+            <h4 className="text-sm font-medium text-gray-300 mb-2">Community Guidelines</h4>
+            <ul className="text-xs text-gray-400 space-y-1">
               <li>• Be respectful and courteous to all users</li>
               <li>• No harassment, bullying, or inappropriate behavior</li>
               <li>• No spam, advertising, or unwanted content</li>

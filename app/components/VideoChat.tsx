@@ -123,7 +123,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
   // SDP Safety: Prevent race conditions in offer/answer negotiation
   const [isOfferInProgress, setIsOfferInProgress] = useState(false);
   const offerLockRef = useRef(false);
-  
+
   // Negotiation Controller: Ensure only ONE negotiation at a time
   const negotiationLockRef = useRef(false);
   const [isNegotiationInProgress, setIsNegotiationInProgress] = useState(false);
@@ -175,14 +175,14 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     // 3️⃣ Prevent Parallel SDP Creation - Acquire negotiation lock
     negotiationLockRef.current = true;
     setIsNegotiationInProgress(true);
-    
+
     try {
       console.log('🚀 NEGOTIATION: Starting single offer creation (SDP-safe)');
 
       // Validate media tracks are attached
       const senders = peerConnectionRef.current.getSenders();
       const activeSenders = senders.filter(sender => sender.track);
-      
+
       if (activeSenders.length === 0) {
         console.error('❌ NEGOTIATION: No media tracks attached');
         return false;
@@ -217,7 +217,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
 
       // Set local description (protected method)
       const setLocalPromise = protectedSetLocalDescription(peerConnectionRef.current, offer);
-      
+
       if (!setLocalPromise) {
         console.error('❌ NEGOTIATION: setLocalDescription() blocked');
         return false;
@@ -1281,10 +1281,10 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       // Start media access immediately - no waiting
       console.log('🎥 IMMEDIATE: Requesting camera access');
       const stream = await getMediaStreamWithFallback();
-      
+
       // Record media ready milestone (Requirements: 10.1)
       console.log('📊 Recorded media ready milestone');
-      
+
 
       // Attach to video element immediately
       if (localVideoRef.current) {
@@ -1411,10 +1411,10 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
           console.log('⚠️ SDP SAFETY: Skipping offer creation - unsafe conditions');
           // Wait briefly for stable state, then create offer
           const stableStateCheck = registerTimeout(() => {
-            if (peerConnectionRef.current && 
-                peerConnectionRef.current.signalingState === 'stable' && 
-                !offerLockRef.current && 
-                !isOfferInProgress) {
+            if (peerConnectionRef.current &&
+              peerConnectionRef.current.signalingState === 'stable' &&
+              !offerLockRef.current &&
+              !isOfferInProgress) {
               createOffer();
             }
           }, 100, 'Stable state check for offer creation');
@@ -1444,10 +1444,10 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     console.log('⏭️ REMOVED: Background network optimization disabled');
     console.log('🚀 Connection establishment starts immediately after media readiness');
     console.log('🔄 Using TURN-first ICE strategy instead of network probing');
-    
+
     // Mark network optimization as complete immediately
     setNetworkOptimized(true);
-    
+
     // No network detection, STUN/TURN probing, or quality checks
     // Connection will rely on TURN-first ICE configuration for reliability
     console.log('✅ REMOVED: Network probing eliminated - connection ready');
@@ -1965,7 +1965,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         console.log('🎥 IMMEDIATE: Stream aborted before start');
         return null;
       }
-      
+
       // Step 1: Media Access (must be first)
       updateExecutionOrder('mediaAccess', 'started');
       validateExecutionOrder('mediaAccess');
@@ -1986,25 +1986,25 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         stream?.getTracks().forEach(track => track.stop());
         return null;
       }
-      
+
       // Validate media stream before proceeding (Requirements 3.2)
       const videoTracks = stream.getVideoTracks();
       const audioTracks = stream.getAudioTracks();
       const allTracks = stream.getTracks();
-      
+
       const mediaValidation = {
         hasVideo: videoTracks.length > 0,
         hasAudio: audioTracks.length > 0,
         allTracksLive: allTracks.every(track => track.readyState === 'live'),
         trackCount: allTracks.length
       };
-      
+
       if (!mediaValidation.allTracksLive) {
         throw new Error('Media stream validation failed: not all tracks are live');
       }
-      
+
       console.log(`✅ IMMEDIATE: Media stream validated - ${mediaValidation.trackCount} tracks (video: ${mediaValidation.hasVideo}, audio: ${mediaValidation.hasAudio})`);
-      
+
       updateExecutionOrder('mediaAccess', 'completed');
       console.log('✅ IMMEDIATE: Media access completed successfully');
 
@@ -2014,7 +2014,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         console.error('❌ IMMEDIATE: UI setup execution order violation detected');
         console.error('❌ VIOLATION: Requirements 3.2 - UI initialization before media readiness');
       }
-      
+
       console.log('🎥 IMMEDIATE: Setting up UI (Step 2: UI Setup)');
 
       // Attach to video element immediately
@@ -2031,7 +2031,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       // Enable UI controls immediately - media is guaranteed ready (Requirements 3.2)
       setUIReady(true);
       setMediaReady(true);
-      
+
       // Record time-to-UI-ready when UI controls are enabled (Requirements: 1.2)
       recordTimeToUIReady();
 
@@ -2070,10 +2070,10 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         console.log('🔗 CONNECTION: Stream aborted before start');
         return;
       }
-      
+
       // Import the optimized connection sequencer
       const { OptimizedConnectionSequencer } = await import('../lib/optimized-connection-sequencer');
-      
+
       // Step 3: Use optimized connection sequencer with parallel execution (Requirements: 5.1, 5.2, 5.3, 5.4, 5.5)
 
       // Step 3: Peer Connection Creation (depends on media access and UI setup completion)
@@ -2081,15 +2081,15 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       if (!validateExecutionOrder('peerConnection')) {
         console.error('❌ CONNECTION: Peer connection execution order violation detected');
       }
-      
+
       console.log('🔗 PARALLEL: Using optimized connection sequencer for parallel ICE and signaling execution');
-      
+
       // Get WebRTC configuration
       const rtcConfiguration = await getWebRTCConfiguration();
-      
+
       // Create optimized sequencer
       const sequencer = new OptimizedConnectionSequencer();
-      
+
       // Execute optimized sequence with progress tracking
       const sequenceResult = await sequencer.executeOptimizedSequence(
         socket,
@@ -2099,7 +2099,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
           console.log(`🔗 CONNECTION: Sequencer progress - ${step}: ${progress}%`);
         }
       );
-      
+
 
       console.log('🔗 CONNECTION: Creating peer connection (Step 3: Peer Connection Creation)');
 
@@ -2116,18 +2116,18 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         sequencer.cleanup();
         return;
       }
-      
+
       // Use the optimized peer connection and stream
       peerConnectionRef.current = sequenceResult.peerConnection;
       localStreamRef.current = sequenceResult.localStream;
-      
+
       console.log(`✅ CONNECTION: Optimized sequence completed in ${sequenceResult.sequenceTime.toFixed(2)}ms`);
-      
+
       // Verify that media tracks are properly attached (Requirements: 3.1, 3.5)
       const senders = sequenceResult.peerConnection.getSenders();
       const activeSenders = senders.filter(sender => sender.track);
       console.log(`✅ CONNECTION: Verified ${activeSenders.length} media tracks attached before signaling`);
-      
+
       // Setup additional event handlers for parallel execution monitoring
       setupPeerConnectionEventHandlers(sequenceResult.peerConnection);
       setupParallelExecutionEventHandlers(sequenceResult.peerConnection);
@@ -2198,11 +2198,11 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       // Begin signaling immediately - sequencer ensures all prerequisites are met (Requirements: 3.3)
       if (shouldInitiate) {
         console.log('🚀 CONNECTION: This client will initiate - using single negotiation controller');
-        
+
         // CRITICAL FIX: Use single negotiation controller instead of duplicate offer creation
         // This prevents the SDP race condition that causes "SDP does not match" errors
         const offerSuccess = await createOfferSafely();
-        
+
         if (!offerSuccess) {
           console.error('❌ CONNECTION: Failed to create offer through negotiation controller');
           throw new Error('Failed to create offer through negotiation controller');
@@ -2213,10 +2213,10 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
 
       updateExecutionOrder('peerConnection', 'completed');
       setConnectionReady(true);
-      
+
       // Record time-to-connection-ready when connection is ready
       recordTimeToConnectionReady();
-      
+
       console.log('✅ CONNECTION: Optimized connection stream complete with proper media track attachment order');
 
       // Record time-to-connection-ready when connection is ready (Requirements: 1.2)
@@ -2248,7 +2248,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     console.log('⏭️ REMOVED: Coordinated background network optimization disabled');
     console.log('🚀 Connection establishment starts immediately after media readiness');
     console.log('🔄 Using TURN-first ICE strategy instead of network probing');
-    
+
     // Start network detection without blocking UI or connection
     console.log('🔍 BACKGROUND: Starting coordinated background optimization stream with execution order enforcement');
 
@@ -2257,14 +2257,14 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       setNetworkOptimized(true);
       return;
     }
-    
+
     // Mark network optimization as complete immediately
     updateExecutionOrder('networkDetection', 'completed');
     setNetworkOptimized(true);
-    
+
     // Record time-to-fully-optimized immediately (Requirements: 1.2)
     recordTimeToFullyOptimized();
-    
+
     // No network detection, STUN/TURN probing, or quality checks
     // Connection will rely on TURN-first ICE configuration for reliability
     console.log('✅ REMOVED: Network probing eliminated - connection ready');
@@ -2626,26 +2626,26 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     const videoTracks = stream.getVideoTracks();
     const audioTracks = stream.getAudioTracks();
     const allTracks = stream.getTracks();
-    
+
     const validation = {
       hasVideo: videoTracks.length > 0,
       hasAudio: audioTracks.length > 0,
       allTracksLive: allTracks.every(track => track.readyState === 'live'),
       trackCount: allTracks.length
     };
-    
+
     if (!validation.allTracksLive) {
       console.error('❌ VALIDATION: Media stream validation failed - not all tracks are live');
       console.error('❌ VIOLATION: Requirements 3.4 - Media must be ready before ICE gathering');
       return false;
     }
-    
+
     if (validation.trackCount === 0) {
       console.error('❌ VALIDATION: Media stream validation failed - no tracks available');
       console.error('❌ VIOLATION: Requirements 3.4 - Media must be ready before ICE gathering');
       return false;
     }
-    
+
     console.log(`✅ VALIDATION: Media stream validated before ICE gathering - ${validation.trackCount} tracks (video: ${validation.hasVideo}, audio: ${validation.hasAudio})`);
     return true;
   };
@@ -2653,20 +2653,20 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
   const createOffer = async () => {
     // Redirect all offer creation through the single negotiation controller
     const success = await createOfferSafely();
-    
+
     if (!success) {
       console.log('⚠️ NEGOTIATION: Offer creation failed, will retry if appropriate');
-      
+
       // Only retry if we're not in a negotiation and conditions are safe
-      if (!negotiationLockRef.current && 
-          !isNegotiationInProgress && 
-          peerConnectionRef.current?.signalingState === 'stable') {
-        
+      if (!negotiationLockRef.current &&
+        !isNegotiationInProgress &&
+        peerConnectionRef.current?.signalingState === 'stable') {
+
         const retryDelay = calculateExponentialBackoffDelay(1, 2000, 8000);
         const retryTimeout = registerTimeout(() => {
-          if (peerConnectionRef.current?.signalingState === 'stable' && 
-              !negotiationLockRef.current && 
-              !isNegotiationInProgress) {
+          if (peerConnectionRef.current?.signalingState === 'stable' &&
+            !negotiationLockRef.current &&
+            !isNegotiationInProgress) {
             console.log('🔄 NEGOTIATION: Retrying offer creation');
             createOfferSafely();
           }
@@ -2746,11 +2746,11 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         // If we have lower ID, we should back off and accept the offer
         if (currentUserId.localeCompare(partnerId) < 0) {
           console.log('🔄 Backing off from offer collision - accepting remote offer');
-          
+
           // SDP SAFETY: Reset offer lock before rollback
           offerLockRef.current = false;
           setIsOfferInProgress(false);
-          
+
           // Reset to stable state first
           try {
             // Use protected setLocalDescription method for rollback
@@ -2772,8 +2772,8 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       }
 
       // 3️⃣ Final signaling state validation before setRemoteDescription
-      if (peerConnectionRef.current.signalingState !== 'stable' && 
-          peerConnectionRef.current.signalingState !== 'have-remote-offer') {
+      if (peerConnectionRef.current.signalingState !== 'stable' &&
+        peerConnectionRef.current.signalingState !== 'have-remote-offer') {
         console.log(`🔒 SDP SAFETY: Aborting offer handling - signaling state changed to: ${peerConnectionRef.current.signalingState}`);
         return;
       }
@@ -2988,11 +2988,11 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
 
   const cleanup = () => {
     console.log('🧹 CLEANUP: Starting cleanup process');
-    
+
     // 4️⃣ CRITICAL: Prevent cleanup during active negotiation to avoid SDP race conditions
     if (negotiationLockRef.current || isNegotiationInProgress) {
       console.log('🔒 CLEANUP: Deferring cleanup - negotiation in progress');
-      
+
       // Schedule cleanup after negotiation completes
       const cleanupRetryTimeout = setTimeout(() => {
         if (!negotiationLockRef.current && !isNegotiationInProgress) {
@@ -3004,10 +3004,10 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
           performCleanup();
         }
       }, 1000); // 1 second grace period for negotiation to complete
-      
+
       return;
     }
-    
+
     performCleanup();
   };
 
@@ -3015,12 +3015,12 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     // SDP SAFETY: Reset offer lock during cleanup
     offerLockRef.current = false;
     setIsOfferInProgress(false);
-    
+
     // NEGOTIATION SAFETY: Reset negotiation lock during cleanup
     negotiationLockRef.current = false;
     setIsNegotiationInProgress(false);
     console.log('🔓 SDP SAFETY: All negotiation locks reset during cleanup');
-    
+
     // Send browser closing event if socket is still connected (Requirements 8.1)
     if (socket && socket.connected) {
       console.log('🧹 CLEANUP: Sending browser closing event to server');
@@ -3388,7 +3388,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       if (shouldForceRelay && !forceRelayMode) {
         console.log('🔒 RECONNECTION: Forcing relay mode for ICE restart due to previous failures');
         setForceRelayMode(true);
-        
+
         // Record TURN fallback milestone (Requirements: 10.1)
         console.log('📊 Recorded TURN fallback milestone');
 
@@ -3531,43 +3531,43 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     // Requirements 3.1, 3.5 - Add media tracks BEFORE any signaling operations
     if (localStreamRef.current) {
       console.log('📎 RECREATION: Attaching media tracks in optimized order before signaling...');
-      
+
       const tracks = localStreamRef.current.getTracks();
-      
+
       // Attach tracks in optimal order: video first, then audio (same as sequencer)
       const videoTracks = tracks.filter(track => track.kind === 'video');
       const audioTracks = tracks.filter(track => track.kind === 'audio');
-      
+
       // Attach video tracks first
       for (const track of videoTracks) {
         console.log(`📎 RECREATION: Attaching video track: ${track.label}`);
         const sender = protectedAddTrack(newPeerConnection, track, localStreamRef.current);
-        
+
         if (!sender) {
           console.error('❌ RECREATION: addTrack() blocked during peer connection recreation');
           throw new Error('Failed to attach video track during recreation');
         }
       }
-      
+
       // Attach audio tracks second
       for (const track of audioTracks) {
         console.log(`📎 RECREATION: Attaching audio track: ${track.label}`);
         const sender = protectedAddTrack(newPeerConnection, track, localStreamRef.current);
-        
+
         if (!sender) {
           console.error('❌ RECREATION: addTrack() blocked during peer connection recreation');
           throw new Error('Failed to attach audio track during recreation');
         }
       }
-      
+
       // Validate all tracks are attached before proceeding (Requirements 3.1, 3.5)
       const senders = newPeerConnection.getSenders();
       const attachedTracks = senders.filter(sender => sender.track).length;
-      
+
       if (attachedTracks !== tracks.length) {
         throw new Error(`Track attachment mismatch during recreation: expected ${tracks.length}, got ${attachedTracks}`);
       }
-      
+
       console.log(`✅ RECREATION: All ${attachedTracks} tracks attached successfully before signaling`);
     }
 
@@ -3584,10 +3584,10 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     if (isInitiator) {
       console.log('🚀 RECREATION: Creating offer with all tracks attached and validated');
       // SDP SAFETY: Only create offer if conditions are safe
-      if (peerConnectionRef.current && 
-          peerConnectionRef.current.signalingState === 'stable' && 
-          !offerLockRef.current && 
-          !isOfferInProgress) {
+      if (peerConnectionRef.current &&
+        peerConnectionRef.current.signalingState === 'stable' &&
+        !offerLockRef.current &&
+        !isOfferInProgress) {
         await createOffer();
       } else {
         console.log('⚠️ SDP SAFETY: Skipping offer creation during recreation - unsafe conditions');
@@ -3637,7 +3637,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     peerConnection.onicecandidate = (event) => {
       if (event.candidate) {
         iceCandidateCount++;
-        
+
         // Record ICE candidate milestone (Requirements: 10.2)
         console.log('📊 Recorded ICE candidate milestone');
         if (iceCandidateCount === 1) {
@@ -3696,7 +3696,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       if (peerConnection.iceGatheringState === 'gathering') {
         // Record ICE gathering start milestone (Requirements: 10.1)
         console.log('📊 Recorded ICE gathering start milestone');
-        
+
         // Longer timeout for restrictive networks to allow TURN candidates
         const timeout = (networkType === 'restrictive' || forceRelayMode) ? 25000 : ICE_GATHERING_TIMEOUT_CONST;
 
@@ -3734,10 +3734,10 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         // Log when first frame is received
         const handleFirstFrame = () => {
           console.log('🎉 REMOTE STREAM: First video frame received and displayed');
-          
+
           // Record first remote frame milestone (Requirements: 10.1)
           console.log('📊 Recorded first remote frame milestone');
-          
+
           remoteVideoRef.current?.removeEventListener('loadeddata', handleFirstFrame);
         };
 
@@ -3761,11 +3761,11 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
           setConnectionState('connected');
           setIsConnectionEstablished(true);
           setReconnectAttempts(0);
-          
+
           // Record connection established milestone (Requirements: 10.1)
           console.log('📊 Connection established milestone recorded');
           console.log('📊 Started real-time connection quality monitoring');
-          
+
           setIsReconnecting(false);
           setIceRestartAttempts(0); // Reset ICE restart attempts on successful connection
 
@@ -3951,12 +3951,12 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     peerConnection.onsignalingstatechange = () => {
       const signalingState = peerConnection.signalingState;
       console.log('🔄 SIGNALING STATE: ' + signalingState);
-      
+
       // SDP SAFETY: Log when signaling state changes during offer creation
       if (offerLockRef.current || isOfferInProgress) {
         console.log('⚠️ SDP SAFETY: Signaling state changed during offer creation:', signalingState);
       }
-      
+
       // SDP SAFETY: Reset offer lock if we reach a stable state unexpectedly
       if (signalingState === 'stable' && (offerLockRef.current || isOfferInProgress)) {
         console.log('🔓 SDP SAFETY: Resetting offer lock due to stable state');
@@ -3985,7 +3985,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         peerConnection.addEventListener('icegatheringstatechange', () => {
           const state = peerConnection.iceGatheringState;
           console.log(`🧊 PARALLEL: ICE gathering state changed to: ${state}`);
-          
+
           if (state === 'gathering') {
             console.log('🚀 PARALLEL: ICE gathering started - parallel execution active');
             console.log('🚀 PARALLEL: ICE candidates will be transmitted immediately without batching');
@@ -3999,13 +3999,13 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
           if (event.candidate) {
             const candidateType = event.candidate.type || 'unknown';
             const timestamp = performance.now();
-            
+
             // Requirements: 5.4 - Log immediate transmission without batching delays
             console.log(`🧊 PARALLEL: ${candidateType} candidate transmitted immediately at ${timestamp.toFixed(2)}ms`);
-            
+
             // Monitor for any delays in candidate transmission
             const transmissionStart = performance.now();
-            
+
             // Use setImmediate to ensure immediate transmission
             setImmediate(() => {
               const transmissionTime = performance.now() - transmissionStart;
@@ -4023,9 +4023,9 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         peerConnection.addEventListener('signalingstatechange', () => {
           const signalingState = peerConnection.signalingState;
           const iceGatheringState = peerConnection.iceGatheringState;
-          
+
           console.log(`📨 PARALLEL: Signaling state: ${signalingState}, ICE gathering: ${iceGatheringState}`);
-          
+
           // Check for proper parallel execution
           if (signalingState === 'have-local-offer' && iceGatheringState === 'gathering') {
             console.log('✅ PARALLEL: Confirmed parallel execution - signaling and ICE gathering running concurrently');
@@ -4038,11 +4038,11 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         peerConnection.addEventListener('connectionstatechange', () => {
           const connectionState = peerConnection.connectionState;
           const iceGatheringState = peerConnection.iceGatheringState;
-          
+
           if (connectionState === 'connected') {
             console.log('🎉 PARALLEL: Connection established successfully with parallel ICE and signaling execution');
             console.log(`🎉 PARALLEL: Final ICE gathering state: ${iceGatheringState}`);
-            
+
             // Log parallel execution success
             console.log('✅ PARALLEL: Parallel execution completed successfully');
             console.log('✅ PARALLEL: ICE gathering and signaling executed concurrently without blocking');
@@ -4126,51 +4126,51 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       // Re-add local stream using optimized sequencing (Requirements 3.1, 3.4, 3.5)
       if (localStreamRef.current && localStreamRef.current.active) {
         console.log('📎 RECONNECTION: Re-attaching existing media stream with optimized sequencing...');
-        
+
         // Requirements 3.4 - Validate media stream before ICE gathering
         if (!validateMediaStreamBeforeICE(localStreamRef.current)) {
           throw new Error('Cannot reconnect: existing media stream validation failed');
         }
-        
+
         const tracks = localStreamRef.current.getTracks().filter(track => track.readyState === 'live');
-        
+
         // Attach tracks in optimal order: video first, then audio (Requirements 3.1, 3.5)
         const videoTracks = tracks.filter(track => track.kind === 'video');
         const audioTracks = tracks.filter(track => track.kind === 'audio');
-        
+
         // Attach video tracks first
         for (const track of videoTracks) {
           console.log(`📎 RECONNECTION: Re-attaching video track: ${track.label}`);
           const sender = protectedAddTrack(newPeerConnection, track, localStreamRef.current);
-          
+
           if (!sender) {
             console.error('❌ RECONNECTION: addTrack() blocked during reconnection');
             throw new Error('Failed to attach video track during reconnection');
           }
         }
-        
+
         // Attach audio tracks second
         for (const track of audioTracks) {
           console.log(`📎 RECONNECTION: Re-attaching audio track: ${track.label}`);
           const sender = protectedAddTrack(newPeerConnection, track, localStreamRef.current);
-          
+
           if (!sender) {
             console.error('❌ RECONNECTION: addTrack() blocked during reconnection');
             throw new Error('Failed to attach audio track during reconnection');
           }
         }
-        
+
         console.log(`✅ RECONNECTION: Re-attached ${tracks.length} tracks with optimized sequencing`);
       } else {
         console.log('🎥 RECONNECTION: Local stream not available, attempting to get media again with optimized sequencing...');
         try {
           const stream = await getMediaStreamWithFallback();
-          
+
           // Requirements 3.4 - Validate new media stream before ICE gathering
           if (!validateMediaStreamBeforeICE(stream)) {
             throw new Error('Cannot reconnect: new media stream validation failed');
           }
-          
+
           localStreamRef.current = stream;
 
           if (localVideoRef.current) {
@@ -4178,11 +4178,11 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
           }
 
           const tracks = stream.getTracks();
-          
+
           // Attach tracks in optimal order: video first, then audio (Requirements 3.1, 3.5)
           const videoTracks = tracks.filter(track => track.kind === 'video');
           const audioTracks = tracks.filter(track => track.kind === 'audio');
-          
+
           // Attach video tracks first
           for (const track of videoTracks) {
             console.log(`📎 RECONNECTION: Attaching new video track: ${track.label}`);
@@ -4193,18 +4193,18 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
               throw new Error('Failed to attach new video track during reconnection');
             }
           }
-          
+
           // Attach audio tracks second
           for (const track of audioTracks) {
             console.log(`📎 RECONNECTION: Attaching new audio track: ${track.label}`);
             const sender = protectedAddTrack(newPeerConnection, track, stream);
-            
+
             if (!sender) {
               console.error('❌ RECONNECTION: addTrack() blocked during reconnection');
               throw new Error('Failed to attach new audio track during reconnection');
             }
           }
-          
+
           console.log(`✅ RECONNECTION: Attached ${tracks.length} new tracks with optimized sequencing`);
         } catch (mediaError) {
           console.error('❌ RECONNECTION: Failed to get media during reconnection:', mediaError);
@@ -4217,10 +4217,10 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       // Restart the connection process
       if (isInitiator) {
         // SDP SAFETY: Only create offer if conditions are safe
-        if (peerConnectionRef.current && 
-            peerConnectionRef.current.signalingState === 'stable' && 
-            !offerLockRef.current && 
-            !isOfferInProgress) {
+        if (peerConnectionRef.current &&
+          peerConnectionRef.current.signalingState === 'stable' &&
+          !offerLockRef.current &&
+          !isOfferInProgress) {
           await createOffer();
         } else {
           console.log('⚠️ SDP SAFETY: Skipping offer creation during reconnection - unsafe conditions');
@@ -4465,278 +4465,278 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
 
   return (
     <>
-      <div className="min-h-screen bg-white flex flex-col">
-      {/* Report Modal */}
-      <ReportModal
-        isOpen={isReportModalOpen}
-        onClose={() => setIsReportModalOpen(false)}
-        onSubmit={handleReportSubmit}
-        partnerInfo={{
-          id: partnerId,
-          roomId: roomId
-        }}
-      />
+      <div className="min-h-screen bg-[#00020d] flex flex-col">
+        {/* Report Modal */}
+        <ReportModal
+          isOpen={isReportModalOpen}
+          onClose={() => setIsReportModalOpen(false)}
+          onSubmit={handleReportSubmit}
+          partnerInfo={{
+            id: partnerId,
+            roomId: roomId
+          }}
+        />
 
-      {/* Header */}
-      <header className="bg-white text-gray-800 p-3 md:p-4 shadow-lg border-b border-gray-200">
-        <div className="max-w-6xl mx-auto flex justify-between items-center">
-          {/* Logo */}
-          <div className="flex items-center">
-            <Image
-              src="/logoherored.png"
-              alt="CampusCam"
-              width={100}
-              height={32}
-              className="md:w-[120px] md:h-[40px]"
-            />
-          </div>
-
-          {/* User Count and Session Timer */}
-          <div className="flex items-center space-x-2 md:space-x-4">
-            {/* User Count Display */}
-            <div className="flex items-center space-x-2">
-              <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-              {activeUserCount > 0 && (
-                <span className="text-sm text-gray-600">
-                  {activeUserCount} active users
-                </span>
-              )}
+        {/* Header */}
+        <header className="bg-[#00020d] text-white p-3 md:p-4 shadow-lg border-b border-gray-800">
+          <div className="max-w-6xl mx-auto flex justify-between items-center">
+            {/* Logo */}
+            <div className="flex items-center">
+              <Image
+                src="/logoherored.png"
+                alt="CampusCam"
+                width={100}
+                height={32}
+                className="md:w-[120px] md:h-[40px]"
+              />
             </div>
 
-            {/* Session Timer and Status */}
-            {sessionStartTime && (
+            {/* User Count and Session Timer */}
+            <div className="flex items-center space-x-2 md:space-x-4">
+              {/* User Count Display */}
+              <div className="flex items-center space-x-2">
+                <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                {activeUserCount > 0 && (
+                  <span className="text-sm text-gray-300">
+                    {activeUserCount} active users
+                  </span>
+                )}
+              </div>
+
+              {/* Session Timer and Status */}
+              {sessionStartTime && (
+                <div className="flex items-center space-x-1 md:space-x-2">
+                  <div className="w-2 h-2 bg-[#FB2C36] rounded-full animate-pulse"></div>
+                  <span className="text-white font-mono text-sm md:text-lg">
+                    {formatSessionDuration(sessionDuration)}
+                  </span>
+                </div>
+              )}
+
+              {/* Connection Status */}
               <div className="flex items-center space-x-1 md:space-x-2">
-                <div className="w-2 h-2 bg-[#FB2C36] rounded-full animate-pulse"></div>
-                <span className="text-gray-800 font-mono text-sm md:text-lg">
-                  {formatSessionDuration(sessionDuration)}
+                <div className={`w-2 h-2 md:w-3 md:h-3 rounded-full ${connectionState === 'connected' ? 'bg-green-500' :
+                  connectionState === 'connecting' || isReconnecting ? 'bg-orange-500 animate-pulse' :
+                    'bg-red-500'
+                  }`}></div>
+                <span className="text-xs md:text-sm text-gray-300 hidden sm:inline">
+                  {connectionState === 'connected' ? 'Connected' :
+                    connectionState === 'connecting' || isReconnecting ? 'Connecting...' :
+                      'Disconnected'}
                 </span>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        {/* Main Video Content */}
+        <div className="flex-1 flex items-center justify-center p-2 md:p-4 lg:p-6">
+          <div className="max-w-7xl w-full h-full">
+            {mediaError ? (
+              <div className="bg-red-900/20 border border-red-800 text-red-200 px-4 py-4 md:px-6 md:py-4 rounded-xl text-center mx-2 md:mx-0">
+                <h3 className="font-semibold mb-2 text-base md:text-lg">Media Access Error</h3>
+                <p className="mb-4 text-red-300 text-sm md:text-base">{mediaError}</p>
+                <div className="mt-4 flex flex-col sm:flex-row gap-2 sm:gap-3 justify-center">
+                  <button
+                    onClick={retryMediaAccess}
+                    className="bg-[#FB2C36] text-white px-4 py-2 md:px-6 md:py-2 rounded-lg hover:bg-[#E02329] transition-colors font-medium text-sm md:text-base"
+                  >
+                    Try Again
+                  </button>
+                  <button
+                    onClick={retryConnection}
+                    className="bg-green-600 text-white px-4 py-2 md:px-6 md:py-2 rounded-lg hover:bg-green-700 transition-colors font-medium text-sm md:text-base"
+                  >
+                    Full Retry
+                  </button>
+                  <button
+                    onClick={() => window.location.reload()}
+                    className="bg-gray-600 text-white px-4 py-2 md:px-6 md:py-2 rounded-lg hover:bg-gray-700 transition-colors font-medium text-sm md:text-base"
+                  >
+                    Refresh Page
+                  </button>
+                </div>
+              </div>
+            ) : connectionState === 'ended' && !isReconnecting ? (
+              <div className="bg-yellow-900/20 border border-yellow-800 text-yellow-200 px-4 py-4 md:px-6 md:py-4 rounded-xl text-center mx-2 md:mx-0">
+                <h3 className="font-semibold mb-2 text-base md:text-lg">Connection Failed</h3>
+                <p className="text-yellow-300 text-sm md:text-base">Unable to establish video connection with your partner.</p>
+                <div className="mt-4 flex flex-col sm:flex-row gap-2 sm:gap-3 justify-center">
+                  <button
+                    onClick={retryConnection}
+                    className="bg-[#FB2C36] text-white px-4 py-2 md:px-6 md:py-2 rounded-lg hover:bg-[#E02329] transition-colors font-medium text-sm md:text-base"
+                  >
+                    Try Again
+                  </button>
+                  <button
+                    onClick={endCall}
+                    className="bg-gray-600 text-white px-4 py-2 md:px-6 md:py-2 rounded-lg hover:bg-gray-700 transition-colors font-medium text-sm md:text-base"
+                  >
+                    End Call
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* Video Layout */
+              <div className="px-3 md:px-0">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 md:gap-4 lg:gap-6 h-full min-h-[50vh] lg:min-h-[70vh] max-w-full">
+                  {/* Partner Video (Left on Desktop, Top on Mobile) */}
+                  <div className="relative bg-gray-900 rounded-xl md:rounded-2xl overflow-hidden shadow-lg border border-gray-800 h-[30vh] lg:h-[55vh] w-full max-w-full">
+                    <video
+                      ref={remoteVideoRef}
+                      autoPlay
+                      playsInline
+                      className="w-full h-full"
+                    />
+                    <div className="absolute bottom-2 left-2 md:bottom-4 md:left-4 bg-[#FB2C36] bg-opacity-90 text-white px-2 py-1 md:px-3 md:py-1 rounded-md md:rounded-lg text-xs md:text-sm font-medium">
+                      Partner
+                    </div>
+
+                    {/* Network Status Badge */}
+                    <div className="absolute top-2 right-2 md:top-4 md:right-4">
+                      <div className="flex flex-col gap-1 md:gap-2">
+                        <div className={`px-1.5 py-0.5 md:px-2 md:py-1 rounded-md md:rounded-lg text-xs font-medium ${networkType === 'open' ? 'bg-green-100 text-green-800 border border-green-200' :
+                          networkType === 'moderate' ? 'bg-yellow-100 text-yellow-800 border border-yellow-200' :
+                            'bg-red-100 text-red-800 border border-red-200'
+                          }`}>
+                          {networkType === 'open' ? 'Good' : networkType === 'moderate' ? 'Fair' : 'Poor'}
+                        </div>
+
+                        {forceRelayMode && (
+                          <div className="px-1.5 py-0.5 md:px-2 md:py-1 rounded-md md:rounded-lg text-xs font-medium bg-blue-100 text-blue-800 border border-blue-200">
+                            Relay
+                          </div>
+                        )}
+
+                        <div className={`px-1.5 py-0.5 md:px-2 md:py-1 rounded-md md:rounded-lg text-xs font-medium ${networkQuality === 'good' ? 'bg-green-100 text-green-800 border border-green-200' :
+                          networkQuality === 'fair' ? 'bg-yellow-100 text-yellow-800 border border-yellow-200' :
+                            'bg-red-100 text-red-800 border border-red-200'
+                          }`}>
+                          {networkQuality}
+                        </div>
+                      </div>
+                    </div>
+
+                    {(connectionState !== 'connected' || isReconnecting) && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-[#FB2C36] bg-opacity-95">
+                        <div className="text-center text-white px-4">
+                          <div className="relative mb-3 md:mb-4">
+                            <div className="animate-spin rounded-full h-8 w-8 md:h-12 md:w-12 border-3 md:border-4 border-white border-opacity-30 border-t-white mx-auto"></div>
+                            <div className="absolute inset-0 animate-pulse">
+                              <div className="w-8 h-8 md:w-12 md:h-12 rounded-full bg-white opacity-20 mx-auto"></div>
+                            </div>
+                          </div>
+                          <p className="text-white font-medium text-sm md:text-base">
+                            {isReconnecting ? `Reconnecting (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS_CONST})` : 'Connecting to partner...'}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Your Video (Right on Desktop, Bottom on Mobile) */}
+                  <div className="relative bg-gray-900 rounded-xl md:rounded-2xl overflow-hidden shadow-lg border border-gray-800 h-[30vh] lg:h-[55vh] w-full max-w-full">
+                    <video
+                      ref={localVideoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      className="w-full h-full scale-x-[-1]"
+                    />
+                    <div className="absolute bottom-2 left-2 md:bottom-4 md:left-4 bg-[#FB2C36] bg-opacity-90 text-white px-2 py-1 md:px-3 md:py-1 rounded-md md:rounded-lg text-xs md:text-sm font-medium">
+                      You
+                    </div>
+
+                    {isVideoDisabled && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-[#FB2C36] bg-opacity-95">
+                        <div className="text-center text-white px-4">
+                          <div className="w-12 h-12 md:w-20 md:h-20 bg-white bg-opacity-20 rounded-full flex items-center justify-center mx-auto mb-2 md:mb-3">
+                            <svg className="w-6 h-6 md:w-10 md:h-10 text-white" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
+                            </svg>
+                          </div>
+                          <p className="text-white font-medium text-sm md:text-base">Camera Off</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Loading overlay for camera setup */}
+                    {connectionState === 'matched' && !mediaReady && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-[#FB2C36] bg-opacity-95">
+                        <div className="text-center text-white px-4">
+                          <div className="relative mb-3 md:mb-4">
+                            <div className="animate-spin rounded-full h-8 w-8 md:h-12 md:w-12 border-3 md:border-4 border-white border-opacity-30 border-t-white mx-auto"></div>
+                            <div className="absolute inset-0 animate-pulse">
+                              <div className="w-8 h-8 md:w-12 md:h-12 rounded-full bg-white opacity-20 mx-auto"></div>
+                            </div>
+                          </div>
+                          <p className="text-white font-medium text-sm md:text-base">
+                            Setting up camera...
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
-
-            {/* Connection Status */}
-            <div className="flex items-center space-x-1 md:space-x-2">
-              <div className={`w-2 h-2 md:w-3 md:h-3 rounded-full ${connectionState === 'connected' ? 'bg-green-500' :
-                connectionState === 'connecting' || isReconnecting ? 'bg-orange-500 animate-pulse' :
-                  'bg-red-500'
-                }`}></div>
-              <span className="text-xs md:text-sm text-gray-700 hidden sm:inline">
-                {connectionState === 'connected' ? 'Connected' :
-                  connectionState === 'connecting' || isReconnecting ? 'Connecting...' :
-                    'Disconnected'}
-              </span>
-            </div>
           </div>
         </div>
-      </header>
 
-      {/* Main Video Content */}
-      <div className="flex-1 flex items-center justify-center p-2 md:p-4 lg:p-6">
-        <div className="max-w-7xl w-full h-full">
-          {mediaError ? (
-            <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-4 md:px-6 md:py-4 rounded-xl text-center mx-2 md:mx-0">
-              <h3 className="font-semibold mb-2 text-base md:text-lg">Media Access Error</h3>
-              <p className="mb-4 text-red-600 text-sm md:text-base">{mediaError}</p>
-              <div className="mt-4 flex flex-col sm:flex-row gap-2 sm:gap-3 justify-center">
-                <button
-                  onClick={retryMediaAccess}
-                  className="bg-[#FB2C36] text-white px-4 py-2 md:px-6 md:py-2 rounded-lg hover:bg-[#E02329] transition-colors font-medium text-sm md:text-base"
-                >
-                  Try Again
-                </button>
-                <button
-                  onClick={retryConnection}
-                  className="bg-green-600 text-white px-4 py-2 md:px-6 md:py-2 rounded-lg hover:bg-green-700 transition-colors font-medium text-sm md:text-base"
-                >
-                  Full Retry
-                </button>
-                <button
-                  onClick={() => window.location.reload()}
-                  className="bg-gray-600 text-white px-4 py-2 md:px-6 md:py-2 rounded-lg hover:bg-gray-700 transition-colors font-medium text-sm md:text-base"
-                >
-                  Refresh Page
-                </button>
-              </div>
-            </div>
-          ) : connectionState === 'ended' && !isReconnecting ? (
-            <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-4 md:px-6 md:py-4 rounded-xl text-center mx-2 md:mx-0">
-              <h3 className="font-semibold mb-2 text-base md:text-lg">Connection Failed</h3>
-              <p className="text-yellow-700 text-sm md:text-base">Unable to establish video connection with your partner.</p>
-              <div className="mt-4 flex flex-col sm:flex-row gap-2 sm:gap-3 justify-center">
-                <button
-                  onClick={retryConnection}
-                  className="bg-[#FB2C36] text-white px-4 py-2 md:px-6 md:py-2 rounded-lg hover:bg-[#E02329] transition-colors font-medium text-sm md:text-base"
-                >
-                  Try Again
-                </button>
-                <button
-                  onClick={endCall}
-                  className="bg-gray-600 text-white px-4 py-2 md:px-6 md:py-2 rounded-lg hover:bg-gray-700 transition-colors font-medium text-sm md:text-base"
-                >
-                  End Call
-                </button>
-              </div>
-            </div>
-          ) : (
-            /* Video Layout */
-            <div className="px-3 md:px-0">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 md:gap-4 lg:gap-6 h-full min-h-[50vh] lg:min-h-[70vh] max-w-full">
-                {/* Partner Video (Left on Desktop, Top on Mobile) */}
-                <div className="relative bg-white rounded-xl md:rounded-2xl overflow-hidden shadow-lg border border-gray-200 h-[30vh] lg:h-[55vh] w-full max-w-full">
-                  <video
-                    ref={remoteVideoRef}
-                    autoPlay
-                    playsInline
-                    className="w-full h-full"
-                  />
-                  <div className="absolute bottom-2 left-2 md:bottom-4 md:left-4 bg-[#FB2C36] bg-opacity-90 text-white px-2 py-1 md:px-3 md:py-1 rounded-md md:rounded-lg text-xs md:text-sm font-medium">
-                    Partner
-                  </div>
+        {/* Controls */}
+        <div className="bg-[#00020d] border-t border-gray-800 p-3 md:p-4 lg:p-6" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
+          <div className="max-w-6xl mx-auto flex justify-center items-center space-x-6 md:space-x-8">
+            {/* Audio Toggle - Left */}
+            <button
+              onClick={toggleAudio}
+              disabled={!localStreamRef.current}
+              className={`p-4 md:p-5 rounded-full transition-all duration-200 ${isAudioMuted
+                ? 'bg-[#FB2C36] hover:bg-[#E02329] text-white shadow-lg'
+                : 'bg-gray-800 hover:bg-gray-700 text-white border-2 border-gray-600'
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
+              title={isAudioMuted ? 'Unmute microphone' : 'Mute microphone'}
+            >
+              <svg className="w-6 h-6 md:w-7 md:h-7" fill="currentColor" viewBox="0 0 20 20">
+                {isAudioMuted ? (
+                  <path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM12.293 7.293a1 1 0 011.414 0L15 8.586l1.293-1.293a1 1 0 111.414 1.414L16.414 10l1.293 1.293a1 1 0 01-1.414 1.414L15 11.414l-1.293 1.293a1 1 0 01-1.414-1.414L13.586 10l-1.293-1.293a1 1 0 010-1.414z" clipRule="evenodd" />
+                ) : (
+                  <path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM15.657 6.343a1 1 0 011.414 0c.28.28.5.599.653.943a5.002 5.002 0 010 5.428 3.9 3.9 0 01-.653.943 1 1 0 01-1.414-1.414c.159-.159.296-.327.406-.506a3.002 3.002 0 000-3.472c-.11-.179-.247-.347-.406-.506a1 1 0 010-1.414z" clipRule="evenodd" />
+                )}
+              </svg>
+            </button>
 
-                  {/* Network Status Badge */}
-                  <div className="absolute top-2 right-2 md:top-4 md:right-4">
-                    <div className="flex flex-col gap-1 md:gap-2">
-                      <div className={`px-1.5 py-0.5 md:px-2 md:py-1 rounded-md md:rounded-lg text-xs font-medium ${networkType === 'open' ? 'bg-green-100 text-green-800 border border-green-200' :
-                        networkType === 'moderate' ? 'bg-yellow-100 text-yellow-800 border border-yellow-200' :
-                          'bg-red-100 text-red-800 border border-red-200'
-                        }`}>
-                        {networkType === 'open' ? 'Good' : networkType === 'moderate' ? 'Fair' : 'Poor'}
-                      </div>
+            {/* End Call - Center */}
+            <button
+              onClick={endCall}
+              className="w-16 h-16 md:w-20 md:h-20 rounded-full bg-[#FB2C36] hover:bg-[#E02329] text-white transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105 flex items-center justify-center"
+              title="End call"
+            >
+              <span className="text-white font-bold text-sm md:text-base">END</span>
+            </button>
 
-                      {forceRelayMode && (
-                        <div className="px-1.5 py-0.5 md:px-2 md:py-1 rounded-md md:rounded-lg text-xs font-medium bg-blue-100 text-blue-800 border border-blue-200">
-                          Relay
-                        </div>
-                      )}
-
-                      <div className={`px-1.5 py-0.5 md:px-2 md:py-1 rounded-md md:rounded-lg text-xs font-medium ${networkQuality === 'good' ? 'bg-green-100 text-green-800 border border-green-200' :
-                        networkQuality === 'fair' ? 'bg-yellow-100 text-yellow-800 border border-yellow-200' :
-                          'bg-red-100 text-red-800 border border-red-200'
-                        }`}>
-                        {networkQuality}
-                      </div>
-                    </div>
-                  </div>
-
-                  {(connectionState !== 'connected' || isReconnecting) && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-[#FB2C36] bg-opacity-95">
-                      <div className="text-center text-white px-4">
-                        <div className="relative mb-3 md:mb-4">
-                          <div className="animate-spin rounded-full h-8 w-8 md:h-12 md:w-12 border-3 md:border-4 border-white border-opacity-30 border-t-white mx-auto"></div>
-                          <div className="absolute inset-0 animate-pulse">
-                            <div className="w-8 h-8 md:w-12 md:h-12 rounded-full bg-white opacity-20 mx-auto"></div>
-                          </div>
-                        </div>
-                        <p className="text-white font-medium text-sm md:text-base">
-                          {isReconnecting ? `Reconnecting (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS_CONST})` : 'Connecting to partner...'}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Your Video (Right on Desktop, Bottom on Mobile) */}
-                <div className="relative bg-white rounded-xl md:rounded-2xl overflow-hidden shadow-lg border border-gray-200 h-[30vh] lg:h-[55vh] w-full max-w-full">
-                  <video
-                    ref={localVideoRef}
-                    autoPlay
-                    playsInline
-                    muted
-                    className="w-full h-full scale-x-[-1]"
-                  />
-                  <div className="absolute bottom-2 left-2 md:bottom-4 md:left-4 bg-[#FB2C36] bg-opacity-90 text-white px-2 py-1 md:px-3 md:py-1 rounded-md md:rounded-lg text-xs md:text-sm font-medium">
-                    You
-                  </div>
-
-                  {isVideoDisabled && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-[#FB2C36] bg-opacity-95">
-                      <div className="text-center text-white px-4">
-                        <div className="w-12 h-12 md:w-20 md:h-20 bg-white bg-opacity-20 rounded-full flex items-center justify-center mx-auto mb-2 md:mb-3">
-                          <svg className="w-6 h-6 md:w-10 md:h-10 text-white" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
-                          </svg>
-                        </div>
-                        <p className="text-white font-medium text-sm md:text-base">Camera Off</p>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Loading overlay for camera setup */}
-                  {connectionState === 'matched' && !mediaReady && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-[#FB2C36] bg-opacity-95">
-                      <div className="text-center text-white px-4">
-                        <div className="relative mb-3 md:mb-4">
-                          <div className="animate-spin rounded-full h-8 w-8 md:h-12 md:w-12 border-3 md:border-4 border-white border-opacity-30 border-t-white mx-auto"></div>
-                          <div className="absolute inset-0 animate-pulse">
-                            <div className="w-8 h-8 md:w-12 md:h-12 rounded-full bg-white opacity-20 mx-auto"></div>
-                          </div>
-                        </div>
-                        <p className="text-white font-medium text-sm md:text-base">
-                          Setting up camera...
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
+            {/* Video Toggle - Right */}
+            <button
+              onClick={toggleVideo}
+              disabled={!localStreamRef.current}
+              className={`p-4 md:p-5 rounded-full transition-all duration-200 ${isVideoDisabled
+                ? 'bg-[#FB2C36] hover:bg-[#E02329] text-white shadow-lg'
+                : 'bg-gray-800 hover:bg-gray-700 text-white border-2 border-gray-600'
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
+              title={isVideoDisabled ? 'Enable camera' : 'Disable camera'}
+            >
+              <svg className="w-6 h-6 md:w-7 md:h-7" fill="currentColor" viewBox="0 0 24 24">
+                {isVideoDisabled ? (
+                  // Camera off icon - crossed out camera
+                  <path d="M2.81 2.81a.996.996 0 0 0-1.41 0C1.01 3.2 1.01 3.83 1.4 4.22L2.81 5.63C2.3 6.27 2 7.09 2 8v8c0 1.1.9 2 2 2h12c.9 0 1.64-.35 2.22-.91l1.58 1.58c.39.39 1.02.39 1.41 0 .39-.39.39-1.02 0-1.41L2.81 2.81zM4 16V8c0-.55.45-1 1-1h.78l2 2H6v4c0 .55.45 1 1 1h8v-.78l2 2H4zm16-7.5c0-.83-.67-1.5-1.5-1.5S17 7.67 17 8.5v7c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5v-7zM9.5 6L8 4.5 9.5 3h5L16 4.5 14.5 6h-5z" />
+                ) : (
+                  // Camera on icon - proper video camera
+                  <path fillRule="evenodd" d="M14 7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7Zm2 9.387 4.684 1.562A1 1 0 0 0 22 17V7a1 1 0 0 0-1.316-.949L16 7.613v8.774Z" clipRule="evenodd" />
+                )}
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
-
-      {/* Controls */}
-      <div className="bg-white border-t border-gray-200 p-3 md:p-4 lg:p-6" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
-        <div className="max-w-6xl mx-auto flex justify-center items-center space-x-6 md:space-x-8">
-          {/* Audio Toggle - Left */}
-          <button
-            onClick={toggleAudio}
-            disabled={!localStreamRef.current}
-            className={`p-4 md:p-5 rounded-full transition-all duration-200 ${isAudioMuted
-              ? 'bg-[#FB2C36] hover:bg-[#E02329] text-white shadow-lg'
-              : 'bg-gray-100 hover:bg-gray-200 text-gray-700 border-2 border-gray-300'
-              } disabled:opacity-50 disabled:cursor-not-allowed`}
-            title={isAudioMuted ? 'Unmute microphone' : 'Mute microphone'}
-          >
-            <svg className="w-6 h-6 md:w-7 md:h-7" fill="currentColor" viewBox="0 0 20 20">
-              {isAudioMuted ? (
-                <path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM12.293 7.293a1 1 0 011.414 0L15 8.586l1.293-1.293a1 1 0 111.414 1.414L16.414 10l1.293 1.293a1 1 0 01-1.414 1.414L15 11.414l-1.293 1.293a1 1 0 01-1.414-1.414L13.586 10l-1.293-1.293a1 1 0 010-1.414z" clipRule="evenodd" />
-              ) : (
-                <path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM15.657 6.343a1 1 0 011.414 0c.28.28.5.599.653.943a5.002 5.002 0 010 5.428 3.9 3.9 0 01-.653.943 1 1 0 01-1.414-1.414c.159-.159.296-.327.406-.506a3.002 3.002 0 000-3.472c-.11-.179-.247-.347-.406-.506a1 1 0 010-1.414z" clipRule="evenodd" />
-              )}
-            </svg>
-          </button>
-
-          {/* End Call - Center */}
-          <button
-            onClick={endCall}
-            className="w-16 h-16 md:w-20 md:h-20 rounded-full bg-[#FB2C36] hover:bg-[#E02329] text-white transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105 flex items-center justify-center"
-            title="End call"
-          >
-            <span className="text-white font-bold text-sm md:text-base">END</span>
-          </button>
-
-          {/* Video Toggle - Right */}
-          <button
-            onClick={toggleVideo}
-            disabled={!localStreamRef.current}
-            className={`p-4 md:p-5 rounded-full transition-all duration-200 ${isVideoDisabled
-              ? 'bg-[#FB2C36] hover:bg-[#E02329] text-white shadow-lg'
-              : 'bg-gray-100 hover:bg-gray-200 text-gray-700 border-2 border-gray-300'
-              } disabled:opacity-50 disabled:cursor-not-allowed`}
-            title={isVideoDisabled ? 'Enable camera' : 'Disable camera'}
-          >
-            <svg className="w-6 h-6 md:w-7 md:h-7" fill="currentColor" viewBox="0 0 24 24">
-              {isVideoDisabled ? (
-                // Camera off icon - crossed out camera
-                <path d="M2.81 2.81a.996.996 0 0 0-1.41 0C1.01 3.2 1.01 3.83 1.4 4.22L2.81 5.63C2.3 6.27 2 7.09 2 8v8c0 1.1.9 2 2 2h12c.9 0 1.64-.35 2.22-.91l1.58 1.58c.39.39 1.02.39 1.41 0 .39-.39.39-1.02 0-1.41L2.81 2.81zM4 16V8c0-.55.45-1 1-1h.78l2 2H6v4c0 .55.45 1 1 1h8v-.78l2 2H4zm16-7.5c0-.83-.67-1.5-1.5-1.5S17 7.67 17 8.5v7c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5v-7zM9.5 6L8 4.5 9.5 3h5L16 4.5 14.5 6h-5z" />
-              ) : (
-                // Camera on icon - proper video camera
-                <path fillRule="evenodd" d="M14 7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7Zm2 9.387 4.684 1.562A1 1 0 0 0 22 17V7a1 1 0 0 0-1.316-.949L16 7.613v8.774Z" clipRule="evenodd" />
-              )}
-            </svg>
-          </button>
-        </div>
-      </div>
-    </div>
     </>
   );
 }

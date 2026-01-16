@@ -4,7 +4,7 @@ import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { io, Socket } from 'socket.io-client';
 import { ClientToServerEvents, ServerToClientEvents } from '../types';
-import { 
+import {
   CONNECTION_CONFIG,
   SOCKET_TIMEOUT_MS
 } from '../lib/connection-config';
@@ -25,7 +25,7 @@ function ChatPageContent() {
   const [socket, setSocket] = useState<Socket<ServerToClientEvents, ClientToServerEvents> | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  
+
   // Chat session data from URL params or socket events
   const [partnerId, setPartnerId] = useState<string | null>(null);
   const [roomId, setRoomId] = useState<string | null>(null);
@@ -38,7 +38,7 @@ function ChatPageContent() {
     const partnerIdParam = searchParams.get('partnerId');
     const roomIdParam = searchParams.get('roomId');
     const restoredParam = searchParams.get('restored');
-    
+
     if (partnerIdParam && roomIdParam) {
       setPartnerId(partnerIdParam);
       setRoomId(roomIdParam);
@@ -143,12 +143,12 @@ function ChatPageContent() {
       if (process.env.NEXT_PUBLIC_SOCKET_URL) {
         return process.env.NEXT_PUBLIC_SOCKET_URL;
       }
-      
+
       // If we're running on localhost (development), use localhost
       if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
         return 'http://localhost:3001'; // Socket server runs on port 3001
       }
-      
+
       // Fallback (shouldn't reach here in production)
       return window.location.origin;
     };
@@ -168,7 +168,7 @@ function ChatPageContent() {
     newSocket.on('connect', () => {
       console.log('📡 SIGNALING: Socket connected to chat server');
       setError(null);
-      
+
       // Only attempt session restoration if we don't already have match data from URL
       if (!partnerId && !roomId && !sessionRestoreAttempted) {
         setSessionRestoreAttempted(true);
@@ -195,7 +195,7 @@ function ChatPageContent() {
 
     newSocket.on('connect_error', (error) => {
       console.error('Connection error:', error);
-      
+
       // Provide more helpful error messages
       if (!process.env.NEXT_PUBLIC_SOCKET_URL && window.location.hostname !== 'localhost') {
         setError('Socket server URL not configured. Please set NEXT_PUBLIC_SOCKET_URL environment variable.');
@@ -212,14 +212,14 @@ function ChatPageContent() {
 
     newSocket.on('error', (errorMessage) => {
       console.error('Server error:', errorMessage);
-      
+
       // Don't immediately redirect on certain errors - try to recover
-      if (errorMessage.includes('Partner session not found') || 
-          errorMessage.includes('No active partner session') ||
-          errorMessage.includes('Partner not connected')) {
+      if (errorMessage.includes('Partner session not found') ||
+        errorMessage.includes('No active partner session') ||
+        errorMessage.includes('Partner not connected')) {
         console.log('Partner session error - attempting to recover...');
         setError(`Connection issue: ${errorMessage}. Retrying...`);
-        
+
         // Try to rejoin matching pool after a delay
         setTimeout(() => {
           if (newSocket.connected) {
@@ -309,15 +309,15 @@ function ChatPageContent() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-[#00020d] flex items-center justify-center">
         <div className="text-center">
           <div className="relative">
-            <div className="animate-spin rounded-full h-12 w-12 border-4 border-gray-200 border-t-[#FB2C36] mx-auto"></div>
+            <div className="animate-spin rounded-full h-12 w-12 border-4 border-gray-700 border-t-[#FB2C36] mx-auto"></div>
             <div className="absolute inset-0 animate-pulse">
               <div className="w-12 h-12 rounded-full bg-[#FB2C36] opacity-20 mx-auto"></div>
             </div>
           </div>
-          <p className="mt-4 text-[#000934] font-medium">Loading video chat...</p>
+          <p className="mt-4 text-white font-medium">Loading video chat...</p>
         </div>
       </div>
     );
@@ -329,15 +329,15 @@ function ChatPageContent() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-[#00020d] flex items-center justify-center">
         <div className="text-center max-w-md mx-auto p-6">
           <div className="bg-[#FB2C36] rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4">
             <svg className="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
             </svg>
           </div>
-          <h2 className="text-xl font-semibold mb-2 text-[#000934]">Connection Error</h2>
-          <p className="text-gray-600 mb-6">{error}</p>
+          <h2 className="text-xl font-semibold mb-2 text-white">Connection Error</h2>
+          <p className="text-gray-300 mb-6">{error}</p>
           <div className="space-y-3">
             <button
               onClick={() => window.location.reload()}
@@ -359,16 +359,16 @@ function ChatPageContent() {
 
   if (!socket || !partnerId || !roomId) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-[#00020d] flex items-center justify-center">
         <div className="text-center max-w-md mx-auto p-6">
           <div className="relative mb-6">
-            <div className="animate-spin rounded-full h-12 w-12 border-4 border-gray-200 border-t-[#FB2C36] mx-auto"></div>
+            <div className="animate-spin rounded-full h-12 w-12 border-4 border-gray-700 border-t-[#FB2C36] mx-auto"></div>
             <div className="absolute inset-0 animate-pulse">
               <div className="w-12 h-12 rounded-full bg-[#FB2C36] opacity-20 mx-auto"></div>
             </div>
           </div>
-          <h2 className="text-xl font-semibold mb-2 text-[#000934]">Setting up video chat...</h2>
-          <p className="text-gray-600 mb-6">
+          <h2 className="text-xl font-semibold mb-2 text-white">Setting up video chat...</h2>
+          <p className="text-gray-300 mb-6">
             {!socket ? 'Connecting to server...' : 'Waiting for match information...'}
           </p>
           <button
@@ -398,15 +398,15 @@ function ChatPageContent() {
 export default function ChatPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-[#00020d] flex items-center justify-center">
         <div className="text-center">
           <div className="relative">
-            <div className="animate-spin rounded-full h-12 w-12 border-4 border-gray-200 border-t-[#FB2C36] mx-auto"></div>
+            <div className="animate-spin rounded-full h-12 w-12 border-4 border-gray-700 border-t-[#FB2C36] mx-auto"></div>
             <div className="absolute inset-0 animate-pulse">
               <div className="w-12 h-12 rounded-full bg-[#FB2C36] opacity-20 mx-auto"></div>
             </div>
           </div>
-          <p className="mt-4 text-[#000934] font-medium">Loading video chat...</p>
+          <p className="mt-4 text-white font-medium">Loading video chat...</p>
         </div>
       </div>
     }>
