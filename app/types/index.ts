@@ -74,9 +74,9 @@ export interface ServerToClientEvents {
   'partner-attempting-restore': (data: { partnerId: string; partnerEmail: string }) => void;
   'partner-video-started': () => void;
   'session-timeout': () => void;
-  'session-restored': (data: { 
-    partnerId: string; 
-    roomId: string; 
+  'session-restored': (data: {
+    partnerId: string;
+    roomId: string;
     wasReconnected: boolean;
     partnerLastSeen?: Date;
     sessionAge?: number;
@@ -94,6 +94,7 @@ export interface ServerToClientEvents {
   'ice-candidate': (candidate: RTCIceCandidateInit) => void;
   'call-ended': () => void;
   'error': (error: string) => void;
+  'media-state-change': (data: { type: 'audio' | 'video' | 'speaker'; enabled: boolean }) => void;
 }
 
 export interface ClientToServerEvents {
@@ -112,6 +113,7 @@ export interface ClientToServerEvents {
   'offer': (offer: RTCSessionDescriptionInit) => void;
   'answer': (answer: RTCSessionDescriptionInit) => void;
   'ice-candidate': (candidate: RTCIceCandidateInit) => void;
+  'media-state-change': (data: { type: 'audio' | 'video' | 'speaker'; enabled: boolean }) => void;
   'end-call': () => void;
   'report-user': (data: { reportedUserId: string; category: string; description: string }) => void;
   'skip-user': () => void;

@@ -92,6 +92,28 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
   const [adaptiveStreamingEnabled, setAdaptiveStreamingEnabled] = useState(false);
   const [isConnectionEstablished, setIsConnectionEstablished] = useState(false);
 
+  // Media State Tracking (Requirements: Local/Remote Sync)
+  const [isRemoteAudioEnabled, setIsRemoteAudioEnabled] = useState(true);
+  const [isRemoteVideoEnabled, setIsRemoteVideoEnabled] = useState(true);
+  const [isSpeakerEnabled, setIsSpeakerEnabled] = useState(true); // Local speaker (output)
+  const [isRemoteSpeakerEnabled, setIsRemoteSpeakerEnabled] = useState(true); // Remote partner's speaker status
+
+  const handleMediaStateChange = useCallback((data: { type: 'audio' | 'video' | 'speaker'; enabled: boolean }) => {
+    console.log(`📡 MEDIA STATE: Partner changed ${data.type} to ${data.enabled ? 'enabled' : 'disabled'}`);
+
+    switch (data.type) {
+      case 'audio':
+        setIsRemoteAudioEnabled(data.enabled);
+        break;
+      case 'video':
+        setIsRemoteVideoEnabled(data.enabled);
+        break;
+      case 'speaker':
+        setIsRemoteSpeakerEnabled(data.enabled);
+        break;
+    }
+  }, []);
+
   // Session timer state
   const [sessionStartTime, setSessionStartTime] = useState<Date | null>(null);
   const [sessionDuration, setSessionDuration] = useState<number>(0);
@@ -789,7 +811,9 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     socket.on('partner-reconnected', handlePartnerReconnected);
     socket.on('session-timeout', handleSessionTimeout);
     socket.on('session-restored', handleSessionRestored);
+    socket.on('session-restored', handleSessionRestored);
     socket.on('session-restore-failed', handleSessionRestoreFailed);
+    socket.on('media-state-change', handleMediaStateChange);
 
     // Handle socket errors
     socket.on('error', (errorMessage) => {
@@ -843,7 +867,9 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       socket.off('partner-reconnected', handlePartnerReconnected);
       socket.off('session-timeout', handleSessionTimeout);
       socket.off('session-restored', handleSessionRestored);
+      socket.off('session-restored', handleSessionRestored);
       socket.off('session-restore-failed', handleSessionRestoreFailed);
+      socket.off('media-state-change', handleMediaStateChange);
       socket.off('error');
     };
   }, [socket]);
@@ -3118,9 +3144,14 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     if (localStreamRef.current) {
       const audioTrack = localStreamRef.current.getAudioTracks()[0];
       if (audioTrack) {
-        audioTrack.enabled = !audioTrack.enabled;
-        setIsAudioMuted(!audioTrack.enabled);
-        console.log('🎤 USER ACTION: Audio ' + (audioTrack.enabled ? 'unmuted' : 'muted'));
+        // Toggle the track
+        const newEnabledState = !audioTrack.enabled;
+        audioTrack.enabled = newEnabledState;
+        setIsAudioMuted(!newEnabledState);
+
+        // Signal the change to partner
+        console.log('🎤 USER ACTION: Audio ' + (newEnabledState ? 'unmuted' : 'muted'));
+        socket.emit('media-state-change', { type: 'audio', enabled: newEnabledState });
       }
     }
   };
@@ -3130,11 +3161,30 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
     if (localStreamRef.current) {
       const videoTrack = localStreamRef.current.getVideoTracks()[0];
       if (videoTrack) {
-        videoTrack.enabled = !videoTrack.enabled;
-        setIsVideoDisabled(!videoTrack.enabled);
-        console.log('📹 USER ACTION: Video ' + (videoTrack.enabled ? 'enabled' : 'disabled'));
+        // Toggle the track
+        const newEnabledState = !videoTrack.enabled;
+        videoTrack.enabled = newEnabledState;
+        setIsVideoDisabled(!newEnabledState);
+
+        // Signal the change to partner
+        console.log('📹 USER ACTION: Video ' + (newEnabledState ? 'enabled' : 'disabled'));
+        socket.emit('media-state-change', { type: 'video', enabled: newEnabledState });
       }
     }
+  };
+
+  const toggleSpeaker = () => {
+    console.log('🔊 USER ACTION: Speaker toggle requested - current state: ' + (isSpeakerEnabled ? 'enabled' : 'disabled'));
+    const newEnabledState = !isSpeakerEnabled;
+    setIsSpeakerEnabled(newEnabledState);
+
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.muted = !newEnabledState;
+      console.log('🔊 USER ACTION: Remote video element ' + (newEnabledState ? 'unmuted' : 'muted'));
+    }
+
+    // Signal the change to partner
+    socket.emit('media-state-change', { type: 'speaker', enabled: newEnabledState });
   };
 
   const endCall = () => {
@@ -3194,6 +3244,8 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
       onError('Failed to submit report. Please try again.');
     }
   };
+
+
 
   const handleInitialConnectionTimeout = () => {
     console.log('Initial connection timeout - checking ICE state before taking action');
@@ -4617,8 +4669,47 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
                       </div>
                     </div>
 
+
+
+                    {/* Remote Video Overlays */}
+                    {!isRemoteVideoEnabled && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-gray-900 z-10">
+                        <div className="text-center text-white px-4">
+                          <div className="w-16 h-16 md:w-20 md:h-20 bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-3">
+                            <svg className="w-8 h-8 md:w-10 md:h-10 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3l18 18" />
+                            </svg>
+                          </div>
+                          <p className="text-gray-300 font-medium text-sm md:text-base">Camera Off</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {!isRemoteAudioEnabled && (
+                      <div className="absolute top-2 left-2 md:top-4 md:left-4 z-20 bg-black/50 backdrop-blur-sm px-2 py-1 rounded-full flex items-center gap-1.5">
+                        <svg className="w-3 h-3 md:w-4 md:h-4 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3l18 18" />
+                        </svg>
+                        <span className="text-xs text-white font-medium">Muted</span>
+                      </div>
+                    )}
+
+                    {!isRemoteSpeakerEnabled && (
+                      <div className="absolute top-12 left-2 md:top-14 md:left-4 z-20 bg-red-900/80 backdrop-blur-sm px-2 py-1 rounded-lg border border-red-500/30">
+                        <span className="text-xs text-white font-medium flex items-center gap-1">
+                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+                          </svg>
+                          Partner Muted You
+                        </span>
+                      </div>
+                    )}
+
                     {(connectionState !== 'connected' || isReconnecting) && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-[#FB2C36] bg-opacity-95">
+                      <div className="absolute inset-0 flex items-center justify-center bg-[#FB2C36] bg-opacity-95 z-30">
                         <div className="text-center text-white px-4">
                           <div className="relative mb-3 md:mb-4">
                             <div className="animate-spin rounded-full h-8 w-8 md:h-12 md:w-12 border-3 md:border-4 border-white border-opacity-30 border-t-white mx-auto"></div>
@@ -4686,6 +4777,24 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
         {/* Controls */}
         <div className="bg-[#00020d] border-t border-gray-800 p-3 md:p-4 lg:p-6" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
           <div className="max-w-6xl mx-auto flex justify-center items-center space-x-6 md:space-x-8">
+            {/* Speaker Toggle - Far Left */}
+            <button
+              onClick={toggleSpeaker}
+              className={`p-4 md:p-5 rounded-full transition-all duration-200 ${!isSpeakerEnabled
+                ? 'bg-[#FB2C36] hover:bg-[#E02329] text-white shadow-lg'
+                : 'bg-gray-800 hover:bg-gray-700 text-white border-2 border-gray-600'
+                }`}
+              title={isSpeakerEnabled ? 'Mute speaker' : 'Unmute speaker'}
+            >
+              <svg className="w-6 h-6 md:w-7 md:h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                {isSpeakerEnabled ? (
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                ) : (
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15zM17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+                )}
+              </svg>
+            </button>
+
             {/* Audio Toggle - Left */}
             <button
               onClick={toggleAudio}
@@ -4734,9 +4843,20 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
                 )}
               </svg>
             </button>
+
+            {/* Report Button - Far Right */}
+            <button
+              onClick={reportUser}
+              className="p-4 md:p-5 rounded-full bg-gray-800 hover:bg-red-900/50 text-gray-400 hover:text-red-500 border-2 border-gray-600 hover:border-red-500/50 transition-all duration-200"
+              title="Report user"
+            >
+              <svg className="w-6 h-6 md:w-7 md:h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </button>
           </div>
         </div>
-      </div>
+      </div >
     </>
   );
 }
