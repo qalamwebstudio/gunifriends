@@ -4673,15 +4673,15 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
 
                     {/* Remote Video Overlays */}
                     {!isRemoteVideoEnabled && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-gray-900 z-10">
+                      <div className="absolute inset-0 flex items-center justify-center bg-[#FB2C36] bg-opacity-95 z-10">
                         <div className="text-center text-white px-4">
-                          <div className="w-16 h-16 md:w-20 md:h-20 bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-3">
-                            <svg className="w-8 h-8 md:w-10 md:h-10 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <div className="w-16 h-16 md:w-20 md:h-20 bg-white bg-opacity-20 rounded-full flex items-center justify-center mx-auto mb-3">
+                            <svg className="w-8 h-8 md:w-10 md:h-10 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3l18 18" />
                             </svg>
                           </div>
-                          <p className="text-gray-300 font-medium text-sm md:text-base">Camera Off</p>
+                          <p className="text-white font-medium text-sm md:text-base">Camera Off</p>
                         </div>
                       </div>
                     )}
@@ -4795,27 +4795,6 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
               </svg>
             </button>
 
-            {/* Audio Toggle - Left (Microphone) */}
-            <button
-              onClick={toggleAudio}
-              disabled={!localStreamRef.current}
-              className={`p-4 md:p-5 rounded-full transition-all duration-200 ${isAudioMuted
-                ? 'bg-[#FB2C36] hover:bg-[#E02329] text-white shadow-lg'
-                : 'bg-gray-800 hover:bg-gray-700 text-white border-2 border-gray-600'
-                } disabled:opacity-50 disabled:cursor-not-allowed`}
-              title={isAudioMuted ? 'Unmute microphone' : 'Mute microphone'}
-            >
-              <svg className="w-6 h-6 md:w-7 md:h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                {isAudioMuted ? (
-                  // Microphone Off Icon
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                ) : (
-                  // Microphone On Icon
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                )}
-                {isAudioMuted && <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3l18 18" />}
-              </svg>
-            </button>
 
             {/* End Call - Center */}
             <button
