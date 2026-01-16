@@ -558,6 +558,29 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Handle media state changes (audio/video/speaker)
+  socket.on('media-state-change', (data) => {
+    console.log(`🎬 Media state change from ${socket.userEmail}:`, data);
+    const session = activeSessions.get(socket.userId);
+    
+    if (session && session.partnerId) {
+      const partnerSession = activeSessions.get(session.partnerId);
+      if (partnerSession && partnerSession.socketId) {
+        const partnerSocket = io.sockets.sockets.get(partnerSession.socketId);
+        if (partnerSocket && partnerSocket.connected) {
+          partnerSocket.emit('media-state-change', data);
+          console.log(`✅ Media state change forwarded to ${partnerSession.email}`);
+        } else {
+          console.log(`❌ Partner socket not connected for media state change`);
+        }
+      } else {
+        console.log(`❌ Partner session not found for media state change`);
+      }
+    } else {
+      console.log(`❌ No active session or partner for media state change`);
+    }
+  });
+
   // Handle skip user
   socket.on('skip-user', () => {
     const session = activeSessions.get(socket.userId);

@@ -81,6 +81,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
   const [connectionPhase, setConnectionPhase] = useState<ConnectionPhase>('pre-connection');
   const [isAudioMuted, setIsAudioMuted] = useState(false);
   const [isVideoDisabled, setIsVideoDisabled] = useState(false);
+  const [isPartnerVideoDisabled, setIsPartnerVideoDisabled] = useState(false);
   const [isInitiator, setIsInitiator] = useState(false);
   const [mediaError, setMediaError] = useState<string | null>(null);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
@@ -99,16 +100,21 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
   const [isRemoteSpeakerEnabled, setIsRemoteSpeakerEnabled] = useState(true); // Remote partner's speaker status
 
   const handleMediaStateChange = useCallback((data: { type: 'audio' | 'video' | 'speaker'; enabled: boolean }) => {
-    console.log(`📡 MEDIA STATE: Partner changed ${data.type} to ${data.enabled ? 'enabled' : 'disabled'}`);
+    console.log(`📡 MEDIA STATE RECEIVED: Partner changed ${data.type} to ${data.enabled ? 'enabled' : 'disabled'}`);
+    console.log('📡 Full data received:', JSON.stringify(data));
 
     switch (data.type) {
       case 'audio':
+        console.log('🔊 Setting isRemoteAudioEnabled to:', data.enabled);
         setIsRemoteAudioEnabled(data.enabled);
         break;
       case 'video':
+        console.log('📹 Setting isRemoteVideoEnabled to:', data.enabled);
+        console.log('📹 This will', data.enabled ? 'HIDE' : 'SHOW', 'the red overlay on partner video');
         setIsRemoteVideoEnabled(data.enabled);
         break;
       case 'speaker':
+        console.log('🔊 Setting isRemoteSpeakerEnabled to:', data.enabled);
         setIsRemoteSpeakerEnabled(data.enabled);
         break;
     }
@@ -117,6 +123,15 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
   // Session timer state
   const [sessionStartTime, setSessionStartTime] = useState<Date | null>(null);
   const [sessionDuration, setSessionDuration] = useState<number>(0);
+
+  // Debug: Log video state changes
+  useEffect(() => {
+    console.log('📹 VIDEO STATE CHANGED:');
+    console.log('  - isVideoDisabled (your camera):', isVideoDisabled);
+    console.log('  - isRemoteVideoEnabled (partner camera):', isRemoteVideoEnabled);
+    console.log('  - Red overlay on YOUR video:', isVideoDisabled ? 'YES' : 'NO');
+    console.log('  - Red overlay on PARTNER video:', !isRemoteVideoEnabled ? 'YES' : 'NO');
+  }, [isVideoDisabled, isRemoteVideoEnabled]);
 
   // Parallel execution state for optimized initialization
   const [mediaReady, setMediaReady] = useState(false);
@@ -3168,6 +3183,7 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
 
         // Signal the change to partner
         console.log('📹 USER ACTION: Video ' + (newEnabledState ? 'enabled' : 'disabled'));
+        console.log('📹 EMITTING media-state-change to partner:', { type: 'video', enabled: newEnabledState });
         socket.emit('media-state-change', { type: 'video', enabled: newEnabledState });
       }
     }
@@ -4678,10 +4694,10 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
                           <div className="w-16 h-16 md:w-20 md:h-20 bg-white bg-opacity-20 rounded-full flex items-center justify-center mx-auto mb-3">
                             <svg className="w-8 h-8 md:w-10 md:h-10 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3l18 18" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                             </svg>
                           </div>
-                          <p className="text-white font-medium text-sm md:text-base">Camera Off</p>
+                          <p className="text-white font-medium text-sm md:text-base">Partner's Camera Off</p>
                         </div>
                       </div>
                     )}
@@ -4739,14 +4755,14 @@ export default function VideoChat({ socket, partnerId, roomId, onCallEnd, onErro
                     </div>
 
                     {isVideoDisabled && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-[#FB2C36] bg-opacity-95">
+                      <div className="absolute inset-0 flex items-center justify-center bg-[#FB2C36] bg-opacity-95 z-20">
                         <div className="text-center text-white px-4">
                           <div className="w-12 h-12 md:w-20 md:h-20 bg-white bg-opacity-20 rounded-full flex items-center justify-center mx-auto mb-2 md:mb-3">
                             <svg className="w-6 h-6 md:w-10 md:h-10 text-white" fill="currentColor" viewBox="0 0 20 20">
                               <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
                             </svg>
                           </div>
-                          <p className="text-white font-medium text-sm md:text-base">Camera Off</p>
+                          <p className="text-white font-medium text-sm md:text-base">Your Camera Off</p>
                         </div>
                       </div>
                     )}
